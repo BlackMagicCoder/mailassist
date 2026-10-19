@@ -107,12 +107,18 @@ class Assistant:
                 settings, mailbox.session, MockModel(naive=settings.demo_model == "naiv"),
                 audit=AuditLog(data / "audit.jsonl"), ledger=DraftLedger(data / "mailassist.sqlite"),
             )
-        llm = NanoGPTClient(
-            api_key=settings.nanogpt_api_key,
-            model=settings.model,
-            base_url=settings.nanogpt_base_url,
-            max_tokens=settings.max_tokens,
-        )
+        llm: LLMAdapter
+        if settings.use_mock:
+            from .demo import MockModel
+
+            llm = MockModel(naive=settings.demo_model == "naiv")
+        else:
+            llm = NanoGPTClient(
+                api_key=settings.nanogpt_api_key,
+                model=settings.model,
+                base_url=settings.nanogpt_base_url,
+                max_tokens=settings.max_tokens,
+            )
         if settings.connector == "imap":
             from .imap import ImapMail
 

@@ -45,6 +45,17 @@ HELP = (
 )
 
 
+def help_text(settings: Settings) -> str:
+    """The data-handling sentence must match the mode actually running."""
+    if settings.connector == "demo":
+        where = "DEMO: synthetische Mails und ein lokales Regel-Modell ohne KI – kein echtes Postfach, nichts verlässt den Server."
+    elif settings.use_mock:
+        where = "MOCK: echtes Postfach, aber lokales Regel-Modell ohne KI – Mailinhalte gehen an kein Sprachmodell."
+    else:
+        where = "Der Inhalt der gewählten Unterhaltung wird dafür an NanoGPT/Anthropic übertragen."
+    return HELP.rsplit("Der Inhalt", 1)[0] + where
+
+
 def _owner(update: Update) -> str:
     return f"telegram:{update.effective_user.id}"
 
@@ -135,7 +146,7 @@ async def _send_proposal(update: Update, context: ContextTypes.DEFAULT_TYPE, pro
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(HELP)
+    await update.effective_message.reply_text(context.bot_data.get("help", HELP))
 
 
 async def cmd_neu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -228,7 +239,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         await _send_proposal(update, context, proposal)
     else:
-        await update.effective_message.reply_text(HELP)
+        await update.effective_message.reply_text(context.bot_data.get("help", HELP))
 
 
 def user_error_text(error: BaseException | None) -> str:
@@ -263,6 +274,7 @@ def build_application(settings: Settings, assistant: Assistant | None = None) ->
     app = Application.builder().token(settings.telegram_token).build()
     app.bot_data["assistant"] = assistant or Assistant.from_settings(settings)
     app.bot_data["allowed_user_ids"] = settings.telegram_allowed_user_ids
+    app.bot_data["help"] = help_text(settings)
     app.add_handler(TypeHandler(Update, _gate), group=-1)
     allowed = filters.User(user_id=list(settings.telegram_allowed_user_ids))
     app.add_handler(CommandHandler(["start", "hilfe", "help"], cmd_start, filters=allowed))

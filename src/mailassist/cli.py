@@ -22,6 +22,10 @@ from .models import EmailSummary, MessageRef
 from .triage import format_triage
 
 PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an NanoGPT (und Anthropic) übertragen."
+MOCK_NOTE = (
+    "MOCK: echtes Postfach, aber lokales Regel-Modell ohne KI – Mailinhalte gehen an kein Sprachmodell. "
+    "Gespeicherte Entwürfe landen wirklich im Entwürfe-Ordner (nur Platzhaltertext)."
+)
 DEMO_NOTE = (
     "DEMO: synthetische Mails (Beispiel GmbH + Gretel, Apache 2.0), lokales Mock-Modell ohne KI – "
     "nichts verlässt diesen Rechner, kein echtes Postfach."
@@ -98,8 +102,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mailassist", description="KI-Antwortentwürfe für dein Postfach (sendet nie selbst).")
     parser.add_argument("--demo", action="store_true",
                         help="Demo: synthetisches Postfach und kostenloses Mock-Modell, kein Zugang und kein Schlüssel nötig")
+    parser.add_argument("--mock", action="store_true",
+                        help="echtes Postfach, aber lokales Mock-Modell statt NanoGPT: kein Schlüssel, Mailinhalte gehen an kein Sprachmodell")
     parser.add_argument("--naiv", action="store_true",
-                        help="nur mit --demo: Mock-Modell befolgt absichtlich Anweisungen aus Mails (zeigt die Schutzprüfungen)")
+                        help="nur mit --demo/--mock: Mock-Modell befolgt absichtlich Anweisungen aus Mails (zeigt die Schutzprüfungen)")
     parser.add_argument("--datenfluss", action="store_true",
                         help="bei analysiere/antworte zeigen, was gelesen, bereinigt, ans Modell gesendet und protokolliert wird")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -151,7 +157,7 @@ async def _run(args: argparse.Namespace, settings: Settings) -> None:
     elif args.command == "suche":
         results = await assistant.search(" ".join(args.text), args.n)
     else:
-        if not demo:
+        if not (demo or settings.use_mock):
             print(PRIVACY_NOTE)
         flow = DataFlow() if args.datenfluss else None
         assistant.tracer = flow
@@ -183,14 +189,24 @@ def main(argv: list[str] | None = None) -> None:
             stream.reconfigure(encoding="utf-8")
     load_dotenv()
     args = _parser().parse_args(argv)
-    if args.naiv and not args.demo:
-        raise SystemExit("--naiv gibt es nur zusammen mit --demo.")
+    if args.naiv and not (args.demo or args.mock):
+        raise SystemExit("--naiv gibt es nur zusammen mit --demo oder --mock.")
+    if args.demo and args.mock:
+        raise SystemExit("--demo nutzt das Mock-Modell bereits; --mock ist für das echte Postfach gedacht.")
     try:
-        settings = Settings.for_demo(naive=args.naiv) if args.demo else Settings.from_env()
+        if args.demo:
+            settings = Settings.for_demo(naive=args.naiv)
+        else:
+            settings = Settings.from_env(require_key=not args.mock)
+            if args.mock:
+                settings = settings.with_mock(naive=args.naiv)
     except ConfigError as exc:
         raise SystemExit(f"Konfigurationsfehler: {exc}")
-    if args.demo and args.command != "bot":
-        print(DEMO_NOTE)
+    if args.command != "bot":
+        if args.demo:
+            print(DEMO_NOTE)
+        elif args.mock:
+            print(MOCK_NOTE)
     setup_logging(settings.secrets(), logging.INFO if args.command == "bot" else logging.WARNING)
     if args.command == "bot":
         from .telegram_bot import run_bot

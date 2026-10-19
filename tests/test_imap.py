@@ -211,6 +211,66 @@ async def test_health_check_shows_detected_imap_folders():
     text = format_checks(await run_checks(settings, session_for(FakeIMAP())))
     assert "✓ Postfach (IMAP)" in text and "Entwürfe: Entwürfe; Gesendet: Gesendet" in text
 
-    no_drafts = [b'(\HasNoChildren) "/" "INBOX"']
+    no_drafts = [rb'(\HasNoChildren) "/" "INBOX"']
     text = format_checks(await run_checks(settings, session_for(FakeIMAP(list_lines=no_drafts))))
     assert "✗ Postfach (IMAP)" in text and "IMAP_DRAFTS_FOLDER setzen" in text
+
+
+@pytest.mark.imap_server
+@pytest.mark.skipif(not TEST_SERVER, reason="opt-in: MAILASSIST_IMAP_TEST_SERVER=host:port:user:password")
+async def test_full_flow_against_real_imap_test_server(tmp_path):
+    """Analyse, draft (mock model) and save through the core; then inspect the server independently."""
+    from contextlib import asynccontextmanager
+
+    from mailassist.core import Assistant
+    from mailassist.dataflow import DataFlow
+    from fake_imap import default_folders
+
+    host, port, user, password = TEST_SERVER.split(":", 3)
+
+    def connect():
+        return imaplib.IMAP4(host, int(port))
+
+    marker = f"flow-{os.getpid()}"
+    seed = connect()
+    seed.login(user, password)
+    for name in ("Drafts", "Sent"):
+        seed.create(name)
+    for folder, mails in (("INBOX", default_folders()["INBOX"]), ("Sent", default_folders()["Gesendet"])):
+        for raw in mails.values():
+            seed.append(folder, None, imaplib.Time2Internaldate(0), raw.replace(b"FB-200", f"FB-200 {marker}".encode()))
+    seed.logout()
+
+    @asynccontextmanager
+    async def session():
+        async with ImapMail(host, user, password, port=int(port), own_address=OWN, connect=connect) as mail:
+            yield mail
+
+    settings = Settings.from_env({"MAILASSIST_CONNECTOR": "imap", "IMAP_USER": OWN, "IMAP_PASSWORD": password,
+                                  "MAILASSIST_KNOWLEDGE_DIR": "examples/knowledge",
+                                  "MAILASSIST_DATA_DIR": str(tmp_path)}, require_key=False).with_mock()
+    from mailassist.audit import AuditLog, DraftLedger
+    from mailassist.demo import MockModel
+
+    assistant = Assistant(settings, session, MockModel(), audit=AuditLog(tmp_path / "a.jsonl"),
+                          ledger=DraftLedger(tmp_path / "l.sqlite"))
+    assistant.tracer = flow = DataFlow()
+    hit = (await assistant.search("Lieferung bis 15.11.2026", 20))[0]
+    triage, _ = await assistant.analyse(hit.ref)
+    proposal = await assistant.propose(hit.ref, "Liefertermin bestätigen")
+    saved = await assistant.save(proposal)
+    assert saved.subject.startswith("Re:") and any("4.850" in str(d) for _, d in flow.steps)  # own reply from Sent in thread
+
+    check = connect()
+    check.login(user, password)
+    check.select("Drafts", readonly=True)
+    _, uids = check.uid("SEARCH", "ALL")
+    _, data = check.uid("FETCH", uids[0].split()[-1].decode(), "(FLAGS BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO TO)])")
+    assert rb"\Draft" in data[0][0] and b"In-Reply-To: <a2@example.org>" in data[0][1]
+    check.select("INBOX", readonly=True)
+    _, unseen = check.uid("SEARCH", "UNSEEN")
+    _, everything = check.uid("SEARCH", "ALL")
+    assert unseen[0].split() == everything[0].split()  # nothing was marked as read
+    _, deleted = check.uid("SEARCH", "DELETED")
+    assert deleted[0] == b""
+    check.logout()

@@ -34,9 +34,14 @@ async def run_checks(
 ) -> list[Check]:
     demo = settings.connector == "demo"
     mailbox = MAILBOX_LABELS.get(settings.connector, f"Postfach ({settings.connector})")
-    model_label = "Modell (Mock, lokal)" if demo else "NanoGPT"
-    config = (f"Demo-Modus: kein Schlüssel nötig, Daten unter {settings.data_dir}" if demo
-              else f"Modell {settings.model}, NanoGPT-Schlüssel gesetzt")
+    mock = demo or settings.use_mock
+    model_label = "Modell (Mock, lokal)" if mock else "NanoGPT"
+    if demo:
+        config = f"Demo-Modus: kein Schlüssel nötig, Daten unter {settings.data_dir}"
+    elif mock:
+        config = "Mock-Modus: echtes Postfach, lokales Regel-Modell – kein Schlüssel, nichts geht an ein Sprachmodell"
+    else:
+        config = f"Modell {settings.model}, NanoGPT-Schlüssel gesetzt"
     results = [Check("Konfiguration", True, config)]
 
     entries, skipped = load_knowledge(settings.knowledge_dir)
@@ -57,7 +62,8 @@ async def run_checks(
     except FileNotFoundError:
         results.append(Check(mailbox, False, f"'{settings.baryon_command}' nicht gefunden"))
     except AssistantError as exc:
-        results.append(Check(mailbox, False, str(exc)))
+        # check runs in the local terminal only, so the technical detail (e.g. certificate error) may be shown
+        results.append(Check(mailbox, False, f"{exc} ({exc.detail})" if exc.detail else str(exc)))
     except Exception as exc:  # noqa: BLE001 - report any startup failure as a red light
         results.append(Check(mailbox, False, f"Start fehlgeschlagen: {type(exc).__name__}"))
 
@@ -68,7 +74,8 @@ async def run_checks(
         except AssistantError as exc:
             results.append(Check(model_label, False, str(exc)))
     else:
-        results.append(Check(model_label, True, "nicht geprüft (mit --llm prüfen; kostet einen kleinen Modellaufruf)"))
+        skipped = "lokal, keine Prüfung nötig" if mock else "nicht geprüft (mit --llm prüfen; kostet einen kleinen Modellaufruf)"
+        results.append(Check(model_label, True, skipped))
 
     if telegram_probe is not None:
         try:

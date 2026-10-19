@@ -81,12 +81,15 @@ Für kostenlose Postfächer ohne Proton Bridge. Kein Baryon nötig.
    IMAP_PASSWORD=dein-passwort-fuer-e-mail-programme
    # IMAP_HOST=secureimap.t-online.de   (Standard, Port 993, verschlüsselt)
    ```
-4. `uv run mailassist check` – zeigt, ob die Anmeldung klappt und welche Ordner für **Entwürfe** und **Gesendet** erkannt wurden. Wird kein Entwürfe-Ordner gefunden, den Namen aus der Meldung mit `IMAP_DRAFTS_FOLDER` setzen.
-5. Dann wie gewohnt `neu`, `suche`, `analysiere`, `antworte`. Entwürfe landen im Entwürfe-Ordner des Postfachs; versenden tust du selbst im Telekom-Webmailer oder Mailprogramm.
+4. `uv run mailassist --mock check` – zeigt, ob die Anmeldung klappt und welche Ordner für **Entwürfe** und **Gesendet** erkannt wurden. Wird kein Entwürfe-Ordner gefunden, den Namen aus der Meldung mit `IMAP_DRAFTS_FOLDER` setzen.
+5. **Erst kostenlos mit `--mock` testen:** `uv run mailassist --mock neu`, `--mock analysiere 1`, `--mock antworte 1`. Das lokale Regel-Modell braucht keinen NanoGPT-Schlüssel, Mailinhalte gehen an kein Sprachmodell – aber das Postfach ist echt: ein gespeicherter (Platzhalter-)Entwurf landet wirklich im Entwürfe-Ordner.
+6. Danach ohne `--mock` mit dem echten Modell (braucht `NANOGPT_API_KEY`). Entwürfe landen im Entwürfe-Ordner; versenden tust du selbst im Telekom-Webmailer oder Mailprogramm.
 
 Unterschiede zu Proton: Es gibt keinen Ordner „All Mail“ – gesucht wird im Posteingang (`MAILASSIST_SEARCH_FOLDER` ändert das), der Verlauf wird über die Antwort-Kopfzeilen aus Posteingang und „Gesendet“ zusammengesetzt. Andere Anbieter (GMX, web.de, Posteo, mailbox.org, Gmail mit App-Passwort …) funktionieren über `IMAP_HOST`; bei manchen muss IMAP erst in den Einstellungen aktiviert werden.
 
-> **Stand:** Der IMAP-Connector ist gegen einen nachgebauten IMAP-Client getestet (inkl. T-Online-typischer Ordnernamen wie „Entwürfe“). Gegen den echten T-Online-Server lief er noch **nicht** – der erste Test mit deiner Test-Adresse ist der Abnahmetest. Für einen lokalen Test-Mailserver gibt es einen optionalen Integrationstest (`MAILASSIST_IMAP_TEST_SERVER`, siehe `tests/test_imap.py`).
+> **Stand:** Der IMAP-Connector ist gegen einen nachgebauten IMAP-Client getestet (inkl. T-Online-typischer Ordnernamen wie „Entwürfe“) **und gegen einen echten lokalen Test-Mailserver** (GreenMail 2.1.14 in Docker): Lesen, Verlauf aus Posteingang + Gesendet, Entwurf mit Antwort-Kopfzeilen im Entwürfe-Ordner; eine unabhängige Prüfung auf dem Server bestätigte, dass keine Mail als gelesen markiert und nichts gelöscht wurde. Gegen den echten T-Online-Server lief er noch **nicht** – der erste `--mock`-Test mit deiner Test-Adresse ist der Abnahmetest.
+>
+> Test-Mailserver selbst starten: `docker run -d --name mailassist-greenmail -p 127.0.0.1:3143:3143 -e "GREENMAIL_OPTS=-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=kira.test:test123@t-online.example" greenmail/standalone:2.1.14`, dann `MAILASSIST_IMAP_TEST_SERVER=127.0.0.1:3143:kira.test:test123 uv run pytest -m imap_server`.
 
 ## Voraussetzungen (Proton-Variante)
 

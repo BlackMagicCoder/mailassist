@@ -38,7 +38,9 @@ class Settings:
     baryon_version: str = "0.6.3"
     # Mail connector: "baryon" (Proton via Bridge), "imap" (T-Online, GMX, …) or "demo" (synthetic + mock model).
     connector: str = "baryon"
-    demo_model: str = "vorsichtig"  # demo only: "vorsichtig" or "naiv" (obeys injections on purpose)
+    demo_model: str = "vorsichtig"  # mock model variant: "vorsichtig" or "naiv" (obeys injections on purpose)
+    # --mock: real mailbox, but the local rule-based MockModel instead of NanoGPT (no key, no model provider).
+    use_mock: bool = False
     imap_host: str = "secureimap.t-online.de"
     imap_port: int = 993
     imap_user: str = ""
@@ -67,12 +69,20 @@ class Settings:
         settings = cls.from_env(env)
         return replace(settings, connector="demo", demo_model="naiv" if naive else "vorsichtig", model="mock")
 
+    def with_mock(self, naive: bool = False) -> Settings:
+        """Same mailbox, but the local MockModel instead of NanoGPT."""
+        from dataclasses import replace
+
+        return replace(self, use_mock=True, model="mock", demo_model="naiv" if naive else "vorsichtig")
+
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
+    def from_env(cls, env: Mapping[str, str] | None = None, require_key: bool = True) -> Settings:
         env = os.environ if env is None else env
         key = env.get("NANOGPT_API_KEY", "").strip()
         if not key:
-            raise ConfigError("NANOGPT_API_KEY ist nicht gesetzt (siehe .env.example).")
+            if require_key:
+                raise ConfigError("NANOGPT_API_KEY ist nicht gesetzt (siehe .env.example), oder mit --mock ohne Modell testen.")
+            key = "mock-ohne-schluessel"
         try:
             user_ids = frozenset(int(v) for v in _split(env.get("TELEGRAM_ALLOWED_USER_IDS")))
             max_tokens = int(env.get("MAILASSIST_MAX_TOKENS", "2000"))

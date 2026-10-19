@@ -157,3 +157,30 @@ def test_cli_demo_end_to_end(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "data" / "demo" / "demo_entwuerfe.json").exists()
     with pytest.raises(SystemExit, match="nur zusammen mit --demo"):
         cli.main(["--naiv", "neu"])
+
+
+# --- --mock: real mailbox, local mock model ----------------------------------------------
+
+def test_mock_settings_need_no_key_and_keep_real_mailbox():
+    from mailassist.telegram_bot import help_text
+
+    env = {"MAILASSIST_CONNECTOR": "imap", "IMAP_USER": "a@t-online.example", "IMAP_PASSWORD": "pw"}
+    with pytest.raises(Exception, match="NANOGPT_API_KEY"):
+        Settings.from_env(env)
+    settings = Settings.from_env(env, require_key=False).with_mock()
+    assert settings.use_mock and settings.connector == "imap" and settings.model == "mock"
+    assistant = Assistant.from_settings(settings)
+    assert isinstance(assistant.llm, MockModel) and not assistant.llm.naive
+    assert "NanoGPT" not in help_text(settings) and "MOCK" in help_text(settings)
+    real = Settings.from_env({"NANOGPT_API_KEY": "k"})
+    assert "NanoGPT" in help_text(real)
+
+
+def test_cli_mock_flag_rules(monkeypatch, capsys):
+    monkeypatch.delenv("NANOGPT_API_KEY", raising=False)
+    with pytest.raises(SystemExit, match="--mock ist für das echte Postfach"):
+        cli.main(["--demo", "--mock", "neu"])
+    with pytest.raises(SystemExit, match="nur zusammen mit --demo oder --mock"):
+        cli.main(["--naiv", "neu"])
+    with pytest.raises(SystemExit, match="mit --mock ohne Modell testen"):
+        cli.main(["check"])
