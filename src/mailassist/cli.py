@@ -15,6 +15,7 @@ from .approval import DuplicateDraftError
 from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
 from .errors import AssistantError
+from .health import format_checks, run_checks
 from .logs import setup_logging
 from .models import EmailSummary, MessageRef
 from .triage import format_triage
@@ -104,11 +105,36 @@ def _parser() -> argparse.ArgumentParser:
     antworte.add_argument("--hinweis", help='z. B. "freundliche Absage"')
     antworte.add_argument("--sprache", help="Antwortsprache erzwingen, z. B. de oder en")
     sub.add_parser("bot", help="Telegram-Bot starten")
+    check = sub.add_parser("check", help="Erreichbarkeit von Bridge/Baryon, NanoGPT und Telegram prüfen")
+    check.add_argument("--llm", action="store_true", help="auch NanoGPT prüfen (ein kleiner Modellaufruf)")
+    check.add_argument("--telegram", action="store_true", help="auch den Telegram-Bot-Token prüfen")
     return parser
+
+
+async def _telegram_probe(token: str) -> str:
+    from telegram import Bot
+
+    async with Bot(token) as telegram_bot:
+        return "@" + (await telegram_bot.get_me()).username
+
+
+async def _check(args: argparse.Namespace, settings: Settings, assistant: Assistant) -> None:
+    probe = None
+    if args.telegram:
+        if not settings.telegram_token:
+            raise SystemExit("TELEGRAM_BOT_TOKEN ist nicht gesetzt.")
+        probe = lambda: _telegram_probe(settings.telegram_token)  # noqa: E731
+    results = await run_checks(settings, assistant.mail_session, assistant.llm if args.llm else None, probe)
+    print(format_checks(results))
+    if not all(r.ok for r in results):
+        raise SystemExit(1)
 
 
 async def _run(args: argparse.Namespace, settings: Settings) -> None:
     assistant = Assistant.from_settings(settings)
+    if args.command == "check":
+        await _check(args, settings, assistant)
+        return
     if args.command == "neu":
         results = await assistant.recent(args.n)
     elif args.command == "suche":

@@ -7,11 +7,11 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "httpx>=0.28",
-    "mcp>=2.2",
-    "pydantic>=2.13",
-    "python-dotenv>=1.2",
-    "python-telegram-bot>=22.8",
+    "httpx>=0.28,<1",
+    "mcp>=2.2,<3",
+    "pydantic>=2.13,<3",
+    "python-dotenv>=1.2,<2",
+    "python-telegram-bot>=22.8,<23",
 ]
 
 [project.scripts]
@@ -30,3 +30,4 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["live: calls the real NanoGPT API with synthetic corpus mails (opt-in, MAILASSIST_LIVE=1)"]

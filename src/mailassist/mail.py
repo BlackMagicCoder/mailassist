@@ -162,11 +162,13 @@ class BaryonMail:
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
         thread_folder: str | None = None,
+        expected_version: str | None = None,
     ):
         self._params = StdioServerParameters(
             command=command, args=args or [], env=env if env is not None else baryon_environment()
         )
         self._thread_folder = thread_folder
+        self._expected_version = expected_version
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
 
@@ -175,11 +177,18 @@ class BaryonMail:
         try:
             read, write = await stack.enter_async_context(stdio_client(self._params))
             session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            init = await session.initialize()
             tools = {tool.name for tool in (await session.list_tools()).tools}
         except BaseException:
             await stack.aclose()
             raise
+        version = (init.server_info.version or "").removeprefix("v")
+        if self._expected_version and version != self._expected_version.removeprefix("v"):
+            await stack.aclose()
+            raise MailError(
+                f"baryon-mcp meldet Version {version or '(keine)'}, geprüft und freigegeben ist "
+                f"{self._expected_version}. Version prüfen oder MAILASSIST_BARYON_VERSION anpassen."
+            )
         missing = ALLOWED_TOOLS - tools
         if missing:
             await stack.aclose()

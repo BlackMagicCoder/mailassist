@@ -157,3 +157,15 @@ async def test_complete_json_gives_up_after_repair():
     with pytest.raises(LLMError, match="strukturierte"):
         await complete_json(llm, "sys", "user", Answer)
     assert llm.complete.await_count == 2
+
+
+# --- P2-3: reviewed Baryon version -----------------------------------------------------
+
+async def test_version_check_accepts_reviewed_and_rejects_other_versions(tmp_path):
+    async with fake_baryon(tmp_path, expected_version="v0.6.3") as mail:  # "v" prefix tolerated
+        assert await mail.search("INBOX", None, 1)
+
+    env = {**get_default_environment(), "FAKE_BARYON_LOG": str(tmp_path / "c.jsonl"), "FAKE_BARYON_VERSION": "0.6.3-dev"}
+    with pytest.raises(MailError, match="0.6.3-dev"):
+        async with BaryonMail(sys.executable, [FAKE], env=env, expected_version="0.6.3"):
+            pass

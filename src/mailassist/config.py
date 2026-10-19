@@ -34,6 +34,8 @@ class Settings:
     signature: str | None = None
     data_dir: str = "data"
     knowledge_dir: str = "knowledge"
+    # Baryon version whose source was reviewed; empty string disables the check.
+    baryon_version: str = "0.6.3"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -60,6 +62,7 @@ class Settings:
             signature=env.get("MAILASSIST_SIGNATURE", "").replace("\\n", "\n").strip() or None,
             data_dir=env.get("MAILASSIST_DATA_DIR", "data"),
             knowledge_dir=env.get("MAILASSIST_KNOWLEDGE_DIR", "knowledge"),
+            baryon_version=env.get("MAILASSIST_BARYON_VERSION", "0.6.3").strip(),
         )
 
     def secrets(self) -> list[str]:

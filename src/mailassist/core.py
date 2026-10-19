@@ -63,11 +63,23 @@ class Assistant:
         data = Path(settings.data_dir)
         return cls(
             settings,
-            lambda: BaryonMail(settings.baryon_command, thread_folder=settings.search_folder),
+            lambda: BaryonMail(
+                settings.baryon_command,
+                thread_folder=settings.search_folder,
+                expected_version=settings.baryon_version or None,
+            ),
             llm,
             audit=AuditLog(data / "audit.jsonl"),
             ledger=DraftLedger(data / "mailassist.sqlite"),
         )
+
+    @property
+    def mail_session(self) -> MailSession:
+        return self._mail_session
+
+    @property
+    def llm(self) -> LLMAdapter:
+        return self._llm
 
     async def recent(self, limit: int = 10) -> list[EmailSummary]:
         async with self._mail_session() as mail:
