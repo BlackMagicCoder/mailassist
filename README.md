@@ -25,6 +25,23 @@ Du (Telegram oder Terminal)
 
 Ein späterer Microsoft-Graph-Connector ist geplant, aber nicht umgesetzt: [docs/graph-connector.md](docs/graph-connector.md).
 
+## Demo – ohne Postfach, ohne Schlüssel, ohne Kosten
+
+```bash
+uv sync
+uv run mailassist --demo neu                                # synthetisches Postfach
+uv run mailassist --demo --datenfluss analysiere 2          # Einordnung + was mit den Daten passiert
+uv run mailassist --demo --datenfluss antworte 8 --hinweis "Angebot zusagen"
+uv run mailassist --demo --naiv --datenfluss antworte 8     # Modell, das Manipulationen befolgt – Prüfung schlägt an
+uv run mailassist --demo check --llm
+uv run mailassist --demo bot                                # Telegram-Demo (braucht nur TELEGRAM_BOT_TOKEN + Nutzer-ID)
+```
+
+- **Daten:** 48 synthetische Mails – 21 eigene B2B-Mails der fiktiven „Beispiel Maschinenbau GmbH“ (inkl. 7 Manipulationsversuchen) und 27 Mails aus dem Gretel-Datensatz *synthetic_pii_finance_multilingual* (Apache 2.0, künstliche Personendaten). Herkunft, Lizenz und Änderungen: [`src/mailassist/demo_data/NOTICE.md`](src/mailassist/demo_data/NOTICE.md).
+- **Mock-Modell:** regelbasiert, lokal, kostenlos – **keine KI**. Es liest aber genau den Text, den ein echtes Modell bekäme. `--naiv` lässt es absichtlich Anweisungen aus Mails befolgen (Links, Prozent-Rabatte), damit man sieht, wie die Prüfung vor der Freigabe anschlägt.
+- **Datenfluss** (`--datenfluss`): zeigt Schritt für Schritt, was gelesen, was entfernt/entschärft (versteckter HTML-Text, imitierte Steuer-Tags), welche freigegebenen Firmeninfos verwendet, was ans Modell geschickt und was protokolliert wurde – im Terminal und als HTML-Bericht unter `data/demo/datenfluss/` mit dem vollständigen Wortlaut.
+- Alles bleibt lokal unter `data/demo/` (Entwürfe in `demo_entwuerfe.json`); die echte Konfiguration und echte Daten werden nie benutzt.
+
 ## Sicherheitsgrenzen
 
 - **Kein Versand möglich.** Baryon hat kein Sende-Werkzeug (Quellcode v0.6.3 geprüft); mailassist ruft zusätzlich nur vier freigegebene Werkzeuge auf (`search_emails`, `get_email`, `get_thread`, `save_reply_draft`) und verweigert alle anderen im Code. Das Modell bekommt keine Werkzeuge – es kann nur Text zurückgeben.
@@ -214,7 +231,7 @@ uv run pytest                                  # alle Tests, offline, ohne echte
 MAILASSIST_LIVE=1 uv run pytest -m live -s     # optional: Live-Evaluierung mit synthetischen Mails
 ```
 
-Testdaten sind ausschließlich synthetisch (`tests/corpus/mails.toml`, `examples/knowledge/`). `tests/fake_baryon.py` ist ein echter MCP-Server mit Ordnern wie bei Bridge und mit Fallen-Werkzeugen (`send_email`, `save_draft`), die nie aufgerufen werden dürfen. Zuordnung aller Testfälle: [docs/testplan.md](docs/testplan.md).
+Testdaten sind ausschließlich synthetisch (`src/mailassist/demo_data/beispiel_gmbh.toml`, `examples/knowledge/`). `tests/fake_baryon.py` ist ein echter MCP-Server mit Ordnern wie bei Bridge und mit Fallen-Werkzeugen (`send_email`, `save_draft`), die nie aufgerufen werden dürfen. Zuordnung aller Testfälle: [docs/testplan.md](docs/testplan.md).
 
 ### Stand der Prüfung
 

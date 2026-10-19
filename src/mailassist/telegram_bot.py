@@ -195,7 +195,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop("draft_message", None)
         await query.message.reply_text(
             f"✅ Entwurf gespeichert: „{saved.subject}“ an {', '.join(saved.to)}.\n"
-            "Bitte in Proton Mail öffnen, prüfen und selbst senden."
+            "Bitte im Entwürfe-Ordner deines Postfachs öffnen, prüfen und selbst senden."
         )
     elif kind == "edit":
         assistant.current_proposal(proposal_id, owner)  # refuses outdated drafts

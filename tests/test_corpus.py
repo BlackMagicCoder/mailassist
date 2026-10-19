@@ -1,4 +1,4 @@
-"""P1-8: deterministic suites over the synthetic corpus (tests/corpus/mails.toml).
+"""P1-8: deterministic suites over the synthetic corpus (src/mailassist/demo_data/beispiel_gmbh.toml).
 
 Offline and model-free: they check what the code guarantees regardless of model
 behaviour - corpus integrity, grounding, prompt structure under injection, output

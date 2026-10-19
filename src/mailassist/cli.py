@@ -1,4 +1,4 @@
-"""Command line: mailassist neu | suche TEXT | analysiere NR | antworte NR | bot."""
+"""Command line: mailassist [--demo [--naiv]] [--datenfluss] neu | suche TEXT | analysiere NR | antworte NR | check | bot."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from .approval import DuplicateDraftError
 from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
+from .dataflow import DataFlow
 from .errors import AssistantError
 from .health import format_checks, run_checks
 from .logs import setup_logging
@@ -21,6 +22,10 @@ from .models import EmailSummary, MessageRef
 from .triage import format_triage
 
 PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an NanoGPT (und Anthropic) übertragen."
+DEMO_NOTE = (
+    "DEMO: synthetische Mails (Beispiel GmbH + Gretel, Apache 2.0), lokales Mock-Modell ohne KI – "
+    "nichts verlässt diesen Rechner, kein echtes Postfach."
+)
 RESULTS_FILE = "letzte_liste.json"
 
 
@@ -62,12 +67,11 @@ def _print_proposal(p: DraftProposal) -> None:
         print(f"Achtung: {warning}")
 
 
-async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None) -> None:
-    print(PRIVACY_NOTE)
+async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None, mailbox: str = "Postfach") -> None:
     proposal = await assistant.propose(ref, instruction)
     while True:
         _print_proposal(proposal)
-        choice = input("\nAls Entwurf in Proton Mail speichern? [j]a / [n]ein / [ä]ndern: ").strip().lower()
+        choice = input(f"\nAls Entwurf im {mailbox} speichern? [j]a / [n]ein / [ä]ndern: ").strip().lower()
         if choice in ("j", "ja", "y"):
             try:
                 saved = await assistant.save(proposal)
@@ -78,7 +82,7 @@ async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None)
                     return
                 saved = await assistant.save(proposal, force=True)
             print(f"Entwurf gespeichert: „{saved.subject}“ an {', '.join(saved.to)}. "
-                  "Bitte in Proton Mail prüfen und selbst senden.")
+                  f"Bitte im {mailbox} prüfen und selbst senden.")
             return
         if choice in ("n", "nein"):
             print("Verworfen, nichts gespeichert.")
@@ -91,7 +95,13 @@ async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None)
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="mailassist", description="KI-Antwortentwürfe für Proton Mail (sendet nie selbst).")
+    parser = argparse.ArgumentParser(prog="mailassist", description="KI-Antwortentwürfe für dein Postfach (sendet nie selbst).")
+    parser.add_argument("--demo", action="store_true",
+                        help="Demo: synthetisches Postfach und kostenloses Mock-Modell, kein Zugang und kein Schlüssel nötig")
+    parser.add_argument("--naiv", action="store_true",
+                        help="nur mit --demo: Mock-Modell befolgt absichtlich Anweisungen aus Mails (zeigt die Schutzprüfungen)")
+    parser.add_argument("--datenfluss", action="store_true",
+                        help="bei analysiere/antworte zeigen, was gelesen, bereinigt, ans Modell gesendet und protokolliert wird")
     sub = parser.add_subparsers(dest="command", required=True)
     neu = sub.add_parser("neu", help="neueste Nachrichten im Posteingang auflisten")
     neu.add_argument("-n", type=int, default=10, help="Anzahl (Standard 10)")
@@ -132,6 +142,7 @@ async def _check(args: argparse.Namespace, settings: Settings, assistant: Assist
 
 async def _run(args: argparse.Namespace, settings: Settings) -> None:
     assistant = Assistant.from_settings(settings)
+    demo = settings.connector == "demo"
     if args.command == "check":
         await _check(args, settings, assistant)
         return
@@ -139,18 +150,28 @@ async def _run(args: argparse.Namespace, settings: Settings) -> None:
         results = await assistant.recent(args.n)
     elif args.command == "suche":
         results = await assistant.search(" ".join(args.text), args.n)
-    elif args.command == "analysiere":
-        print(PRIVACY_NOTE)
-        triage, model = await assistant.analyse(_load_ref(settings, args.nummer))
-        print()
-        print(format_triage(triage))
-        print(f"(Modell: {model})")
-        return
     else:
-        instruction = args.hinweis
-        if args.sprache:
-            instruction = f"{instruction or 'Write an appropriate reply.'} Reply in language: {args.sprache}."
-        await _reply(assistant, _load_ref(settings, args.nummer), instruction)
+        if not demo:
+            print(PRIVACY_NOTE)
+        flow = DataFlow() if args.datenfluss else None
+        assistant.tracer = flow
+        try:
+            if args.command == "analysiere":
+                triage, model = await assistant.analyse(_load_ref(settings, args.nummer))
+                print()
+                print(format_triage(triage))
+                print(f"(Modell: {model})")
+            else:
+                instruction = args.hinweis
+                if args.sprache:
+                    instruction = f"{instruction or 'Write an appropriate reply.'} Reply in language: {args.sprache}."
+                await _reply(assistant, _load_ref(settings, args.nummer), instruction,
+                             "Demo-Postfach" if demo else "Postfach")
+        finally:
+            if flow is not None and flow.steps:
+                print(flow.summary())
+                report = flow.write_html(Path(settings.data_dir) / "datenfluss", f"{args.command} Nr. {args.nummer}")
+                print(f"HTML-Bericht mit dem vollständigen Wortlaut: {report.resolve()}")
         return
     _store_results(settings, results)
     _print_results(results)
@@ -162,10 +183,14 @@ def main(argv: list[str] | None = None) -> None:
             stream.reconfigure(encoding="utf-8")
     load_dotenv()
     args = _parser().parse_args(argv)
+    if args.naiv and not args.demo:
+        raise SystemExit("--naiv gibt es nur zusammen mit --demo.")
     try:
-        settings = Settings.from_env()
+        settings = Settings.for_demo(naive=args.naiv) if args.demo else Settings.from_env()
     except ConfigError as exc:
         raise SystemExit(f"Konfigurationsfehler: {exc}")
+    if args.demo and args.command != "bot":
+        print(DEMO_NOTE)
     setup_logging(settings.secrets(), logging.INFO if args.command == "bot" else logging.WARNING)
     if args.command == "bot":
         from .telegram_bot import run_bot

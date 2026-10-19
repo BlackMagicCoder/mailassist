@@ -5,7 +5,7 @@ Zwei Stufen:
 1. **Deterministisch** (`uv run pytest`, offline, Pflicht vor jedem Commit): Fake-LLM, Fake-Baryon (echter MCP-Server mit Testmails), synthetischer Korpus. Prüft, was der Code unabhängig vom Modellverhalten garantiert.
 2. **Live-Evaluierung** (optional, `uv run pytest -m live`, siehe unten): echtes Modell über NanoGPT, nur synthetische Mails. Misst, wie gut das Modell einordnet, Fakten einhält und Manipulationen widersteht.
 
-Testdaten: `tests/corpus/mails.toml` – 21 synthetische B2B-Mails der fiktiven „Beispiel Maschinenbau GmbH“ (alle 10 Kategorien, Deutsch und Englisch, 7 Manipulationsversuche), ausschließlich reservierte `.example`-Domains. Demo-Wissensbasis: `examples/knowledge/`. Echte Kundendaten werden für Tests nie verwendet.
+Testdaten: `src/mailassist/demo_data/beispiel_gmbh.toml` – 21 synthetische B2B-Mails der fiktiven „Beispiel Maschinenbau GmbH“ (alle 10 Kategorien, Deutsch und Englisch, 7 Manipulationsversuche), ausschließlich reservierte `.example`-Domains. Demo-Wissensbasis: `examples/knowledge/`. Echte Kundendaten werden für Tests nie verwendet.
 
 ## Zuordnung Testplan → Tests
 

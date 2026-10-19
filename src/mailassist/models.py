@@ -39,6 +39,8 @@ class Email:
     body: str
     truncated: bool = False
     message_id: str = ""
+    # What the connector removed before the text could reach the model (e.g. hidden HTML).
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

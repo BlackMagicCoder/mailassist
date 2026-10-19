@@ -36,6 +36,30 @@ class Settings:
     knowledge_dir: str = "knowledge"
     # Baryon version whose source was reviewed; empty string disables the check.
     baryon_version: str = "0.6.3"
+    # Mail connector: "baryon" (Proton via Bridge) or "demo" (synthetic mailbox + mock model).
+    connector: str = "baryon"
+    demo_model: str = "vorsichtig"  # demo only: "vorsichtig" or "naiv" (obeys injections on purpose)
+
+    @classmethod
+    def for_demo(cls, env: Mapping[str, str] | None = None, naive: bool = False) -> Settings:
+        """Demo settings: no API key needed, separate data folder, demo knowledge base."""
+        from dataclasses import replace
+
+        from .demo import DEMO_OWN_ADDRESSES, DEMO_SIGNATURE
+
+        env = dict(os.environ if env is None else env)
+        env["NANOGPT_API_KEY"] = env.get("NANOGPT_API_KEY") or "demo-ohne-schluessel"
+        defaults = {
+            # Own variable on purpose: MAILASSIST_DATA_DIR of the real setup is never reused by the demo.
+            "MAILASSIST_DATA_DIR": env.get("MAILASSIST_DEMO_DATA_DIR") or os.path.join("data", "demo"),
+            "MAILASSIST_KNOWLEDGE_DIR": os.path.join("examples", "knowledge"),
+            "MAILASSIST_OWN_ADDRESSES": DEMO_OWN_ADDRESSES,
+            "MAILASSIST_SIGNATURE": DEMO_SIGNATURE,
+        }
+        for key, value in defaults.items():
+            env[key] = value  # the demo always uses its own data, never the real configuration
+        settings = cls.from_env(env)
+        return replace(settings, connector="demo", demo_model="naiv" if naive else "vorsichtig", model="mock")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:

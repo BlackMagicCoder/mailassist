@@ -127,12 +127,24 @@ _HIDDEN = re.compile(
 def html_to_text(markup: str) -> str:
     """Visible text only. Hidden elements are dropped: the owner cannot see them in
     Proton Mail, so they must not reach the model either (classic injection carrier)."""
-    markup = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", markup)
-    markup = re.sub(r"(?is)<!--.*?-->", "", markup)
-    markup = _HIDDEN.sub("", markup)
+    return html_to_text_with_notes(markup)[0]
+
+
+def html_to_text_with_notes(markup: str) -> tuple[str, tuple[str, ...]]:
+    """Like html_to_text, plus human-readable notes on what was removed."""
+    markup, scripts = re.subn(r"(?is)<(script|style)\b.*?</\1>", "", markup)
+    markup, comments = re.subn(r"(?is)<!--.*?-->", "", markup)
+    markup, hidden = _HIDDEN.subn("", markup)
     markup = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</li>|</tr>", "\n", markup)
     text = html.unescape(re.sub(r"<[^>]+>", "", markup))
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    notes = []
+    if hidden:
+        notes.append(f"{hidden} versteckte(s) HTML-Element(e) entfernt (unsichtbar für dich, also auch nicht fürs Modell)")
+    if comments:
+        notes.append(f"{comments} HTML-Kommentar(e) entfernt")
+    if scripts:
+        notes.append(f"{scripts} Script-/Style-Block(e) entfernt")
+    return re.sub(r"\n{3,}", "\n\n", text).strip(), tuple(notes)
 
 
 def _first(addresses: list[str] | None) -> str:
@@ -237,15 +249,17 @@ class BaryonMail:
 
     async def get_email(self, ref: MessageRef) -> Email:
         d = _parse(_EmailOut, await self._call("get_email", ref.as_args()), "get_email")
+        body, notes = (d.plain_body, ()) if d.plain_body else html_to_text_with_notes(d.html_body)
         return Email(
             ref=ref,
             subject=d.subject,
             sender=_first(d.reply_to) or _first(d.from_),
             to=list(d.to),
             date=d.date,
-            body=d.plain_body or html_to_text(d.html_body),
+            body=body,
             truncated=d.text_truncated or d.html_truncated,
             message_id=d.message_id,
+            notes=notes,
         )
 
     async def get_thread(self, ref: MessageRef) -> list[ThreadMessage]:

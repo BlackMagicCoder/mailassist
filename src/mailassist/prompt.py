@@ -37,6 +37,13 @@ def _neutralize(text: str) -> str:
     return re.sub(rf"<(/?)({_TAGS})\b", r"‹\1\2", text, flags=re.IGNORECASE)
 
 
+def sanitize_report(texts: list[str]) -> dict[str, int]:
+    """How much untrusted text had to be defused before reaching the model (for the data-flow view)."""
+    imitations = sum(len(re.findall(rf"<(/?)({_TAGS})\b", unicodedata.normalize("NFKC", t), re.IGNORECASE)) for t in texts)
+    normalised = sum(unicodedata.normalize("NFKC", t) != t for t in texts)
+    return {"tag_imitationen": imitations, "unicode_normalisiert": normalised}
+
+
 def system_prompt(signature: str | None) -> str:
     if signature:
         rule = f"End the reply with a suitable closing followed by exactly this signature:\n{signature}"

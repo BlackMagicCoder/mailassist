@@ -1,4 +1,4 @@
-"""Load the synthetic corpus (tests/corpus/mails.toml) as domain objects."""
+"""Load the synthetic corpus (src/mailassist/demo_data/beispiel_gmbh.toml) as domain objects."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from mailassist.mail import html_to_text
 from mailassist.models import Email, MessageRef, ThreadMessage
 
-CORPUS = Path(__file__).with_name("corpus") / "mails.toml"
+CORPUS = Path(__file__).parents[1] / "src" / "mailassist" / "demo_data" / "beispiel_gmbh.toml"
 OWN = frozenset({"vertrieb@beispiel-maschinenbau.example"})
 
 

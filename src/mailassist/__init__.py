@@ -1,1 +1,1 @@
-"""Local AI reply-draft assistant for Proton Mail (never sends mail)."""
+"""Inbox-to-action copilot: AI reply drafts for your mailbox (never sends mail)."""
