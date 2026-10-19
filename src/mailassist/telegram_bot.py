@@ -29,6 +29,7 @@ from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
 from .errors import AssistantError
 from .models import EmailSummary
+from .triage import format_triage
 
 log = logging.getLogger(__name__)
 
@@ -158,9 +159,16 @@ async def _select(update: Update, context: ContextTypes.DEFAULT_TYPE, index_text
     selected = results[int(index_text)]
     context.user_data["selected"] = selected
     context.user_data["state"] = "await_instruction"
+    await message.reply_text(f"Ausgewählt: {selected.subject}\nAnalysiere …")
+    try:
+        triage, _ = await _assistant(context).analyse(selected.ref)
+        for part in split_message(format_triage(triage)):
+            await message.reply_text(part)
+    except AssistantError as exc:
+        # Analysis is optional: drafting still works without it.
+        await message.reply_text(f"Einordnung nicht möglich: {exc}")
     await message.reply_text(
-        f"Ausgewählt: {selected.subject}\nWas soll die Antwort sagen? (z. B. „freundliche Absage“, "
-        "oder „-“ für einen allgemeinen Vorschlag)"
+        "Was soll die Antwort sagen? (z. B. „freundliche Absage“, oder „-“ für einen allgemeinen Vorschlag)"
     )
 
 

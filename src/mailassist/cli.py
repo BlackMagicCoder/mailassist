@@ -1,4 +1,4 @@
-"""Command line: mailassist neu | suche TEXT | antworte NR | bot."""
+"""Command line: mailassist neu | suche TEXT | analysiere NR | antworte NR | bot."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from .core import Assistant, DraftProposal
 from .errors import AssistantError
 from .logs import setup_logging
 from .models import EmailSummary, MessageRef
+from .triage import format_triage
 
 PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an NanoGPT (und Anthropic) übertragen."
 RESULTS_FILE = "letzte_liste.json"
@@ -86,6 +87,8 @@ def _parser() -> argparse.ArgumentParser:
     suche = sub.add_parser("suche", help="Postfach durchsuchen")
     suche.add_argument("text", nargs="+")
     suche.add_argument("-n", type=int, default=10, help="Anzahl (Standard 10)")
+    analysiere = sub.add_parser("analysiere", help="Nachricht aus der letzten Liste einordnen und Fakten extrahieren")
+    analysiere.add_argument("nummer", type=int)
     antworte = sub.add_parser("antworte", help="Antwortentwurf zu einer Nachricht aus der letzten Liste erstellen")
     antworte.add_argument("nummer", type=int)
     antworte.add_argument("--hinweis", help='z. B. "freundliche Absage"')
@@ -100,6 +103,13 @@ async def _run(args: argparse.Namespace, settings: Settings) -> None:
         results = await assistant.recent(args.n)
     elif args.command == "suche":
         results = await assistant.search(" ".join(args.text), args.n)
+    elif args.command == "analysiere":
+        print(PRIVACY_NOTE)
+        triage, model = await assistant.analyse(_load_ref(settings, args.nummer))
+        print()
+        print(format_triage(triage))
+        print(f"(Modell: {model})")
+        return
     else:
         instruction = args.hinweis
         if args.sprache:

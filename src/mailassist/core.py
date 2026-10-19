@@ -16,6 +16,7 @@ from .llm import NanoGPTClient
 from .mail import BaryonMail, MailBackend, MailError
 from .models import DraftProposal, EmailSummary, MessageRef, SavedDraft
 from .prompt import build_user_prompt, count_todos, system_prompt
+from .triage import Triage, analyse as analyse_mail
 
 __all__ = ["Assistant", "DraftProposal", "MailSession"]
 
@@ -91,6 +92,19 @@ class Assistant:
         self._gate.register(proposal, owner)
         log.info("proposal id=%s uid=%s thread=%d todos=%d", proposal.id, ref.uid, len(thread), count_todos(proposal.body))
         return proposal
+
+    async def analyse(self, ref: MessageRef) -> tuple[Triage, str]:
+        """Classify and extract; read-only, nothing is stored or executed."""
+        async with self._mail_session() as mail:
+            email = await mail.get_email(ref)
+            thread = await mail.get_thread(ref)
+        triage, model = await analyse_mail(self._llm, email, thread, self._settings.own_addresses)
+        facts = [f for f in triage.facts() if f.status != "unknown"]
+        log.info(
+            "triage uid=%s category=%s facts=%d verified=%d injection=%s",
+            ref.uid, triage.category, len(facts), sum(f.verified for f in facts), triage.injection_suspected,
+        )
+        return triage, model
 
     def current_proposal(self, proposal_id: str, owner: str) -> DraftProposal:
         return self._gate.current(proposal_id, owner)

@@ -49,15 +49,13 @@ def _is_own(sender: str, own_addresses: frozenset[str]) -> bool:
     return bool(addresses(sender) & own_addresses)
 
 
-def build_user_prompt(
+def build_mail_context(
     email: Email,
     thread: list[ThreadMessage],
-    instruction: str | None,
     own_addresses: frozenset[str] = frozenset(),
-    previous_draft: str | None = None,
-    change_request: str | None = None,
     max_chars: int = MAX_CONTEXT_CHARS,
-) -> str:
+) -> list[str]:
+    """<thread> (earlier messages, bounded) and <selected_email>, all neutralised as untrusted data."""
     selected = (
         f"<selected_email>\nFrom: {_neutralize(email.sender)}\nDate: {email.date}\n"
         f"Subject: {_neutralize(email.subject)}\n\n{_neutralize(email.body[:max_chars])}"
@@ -93,6 +91,19 @@ def build_user_prompt(
     if earlier:
         parts.append("<thread>\n" + "\n".join(earlier) + "\n</thread>")
     parts.append(selected)
+    return parts
+
+
+def build_user_prompt(
+    email: Email,
+    thread: list[ThreadMessage],
+    instruction: str | None,
+    own_addresses: frozenset[str] = frozenset(),
+    previous_draft: str | None = None,
+    change_request: str | None = None,
+    max_chars: int = MAX_CONTEXT_CHARS,
+) -> str:
+    parts = build_mail_context(email, thread, own_addresses, max_chars)
     parts.append(
         "<owner_instruction>\n"
         + (_neutralize(instruction) if instruction else "Write an appropriate reply.")
