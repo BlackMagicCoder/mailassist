@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .approval import DuplicateDraftError
 from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
 from .errors import AssistantError
@@ -67,7 +68,14 @@ async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None)
         _print_proposal(proposal)
         choice = input("\nAls Entwurf in Proton Mail speichern? [j]a / [n]ein / [ä]ndern: ").strip().lower()
         if choice in ("j", "ja", "y"):
-            saved = await assistant.save(proposal)
+            try:
+                saved = await assistant.save(proposal)
+            except DuplicateDraftError as exc:
+                print(f"Achtung: {exc}")
+                if input("Trotzdem speichern? [j/n]: ").strip().lower() not in ("j", "ja", "y"):
+                    print("Nicht gespeichert.")
+                    return
+                saved = await assistant.save(proposal, force=True)
             print(f"Entwurf gespeichert: „{saved.subject}“ an {', '.join(saved.to)}. "
                   "Bitte in Proton Mail prüfen und selbst senden.")
             return

@@ -17,7 +17,17 @@ MIN_HASH_PREFIX = 16
 
 
 class ApprovalError(AssistantError):
-    pass
+    def __init__(self, message: str, code: str):
+        super().__init__(message)
+        self.code = code
+
+
+class DuplicateDraftError(ApprovalError):
+    """A draft for this message was saved before; saving again needs explicit confirmation."""
+
+    def __init__(self, message: str, saved_at: str):
+        super().__init__(message, code="duplicate")
+        self.saved_at = saved_at
 
 
 @dataclass
@@ -48,27 +58,29 @@ class ApprovalGate:
         while len(self._tickets) > self._max:
             self._tickets.popitem(last=False)
 
-    def _ticket(self, proposal_id: str, owner: str) -> _Ticket:
+    def _open_ticket(self, proposal_id: str, owner: str) -> _Ticket:
         ticket = self._tickets.get(proposal_id)
         if ticket is None or ticket.owner != owner:
-            raise ApprovalError("Unbekannter oder abgelaufener Entwurf. Bitte neu erstellen.")
+            raise ApprovalError("Unbekannter oder abgelaufener Entwurf. Bitte neu erstellen.", code="unknown")
+        if ticket.state not in ("pending", "failed"):
+            raise ApprovalError(_REFUSALS[ticket.state], code=ticket.state)
         return ticket
 
     def current(self, proposal_id: str, owner: str) -> DraftProposal:
         """The proposal, if it is still the owner's open one (for revisions)."""
-        ticket = self._ticket(proposal_id, owner)
-        if ticket.state not in ("pending", "failed"):
-            raise ApprovalError(_REFUSALS[ticket.state])
+        return self._open_ticket(proposal_id, owner).proposal
+
+    def verify(self, proposal_id: str, content_hash: str, owner: str) -> DraftProposal:
+        """All approval checks, without changing state."""
+        ticket = self._open_ticket(proposal_id, owner)
+        if len(content_hash) < MIN_HASH_PREFIX or not ticket.proposal.content_hash.startswith(content_hash):
+            raise ApprovalError("Freigabe passt nicht zum Entwurfsinhalt. Nichts gespeichert.", code="hash_mismatch")
         return ticket.proposal
 
     def begin(self, proposal_id: str, content_hash: str, owner: str) -> DraftProposal:
-        ticket = self._ticket(proposal_id, owner)
-        if ticket.state not in ("pending", "failed"):
-            raise ApprovalError(_REFUSALS[ticket.state])
-        if len(content_hash) < MIN_HASH_PREFIX or not ticket.proposal.content_hash.startswith(content_hash):
-            raise ApprovalError("Freigabe passt nicht zum Entwurfsinhalt. Nichts gespeichert.")
-        ticket.state = "saving"
-        return ticket.proposal
+        proposal = self.verify(proposal_id, content_hash, owner)
+        self._tickets[proposal_id].state = "saving"
+        return proposal
 
     def finish(self, proposal_id: str, ok: bool) -> None:
         ticket = self._tickets.get(proposal_id)
@@ -76,8 +88,6 @@ class ApprovalGate:
             ticket.state = "saved" if ok else "failed"
 
     def discard(self, proposal_id: str, owner: str) -> DraftProposal:
-        ticket = self._ticket(proposal_id, owner)
-        if ticket.state not in ("pending", "failed"):
-            raise ApprovalError(_REFUSALS[ticket.state])
+        ticket = self._open_ticket(proposal_id, owner)
         ticket.state = "discarded"
         return ticket.proposal

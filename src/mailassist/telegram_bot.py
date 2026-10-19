@@ -24,7 +24,7 @@ from telegram.ext import (
     filters,
 )
 
-from .approval import MIN_HASH_PREFIX
+from .approval import MIN_HASH_PREFIX, DuplicateDraftError
 from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
 from .errors import AssistantError
@@ -181,9 +181,17 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     assistant, owner = _assistant(context), _owner(update)
     proposal_id, _, content_hash = rest.partition(":")
-    if kind == "save":
+    if kind in ("save", "force"):
         await query.edit_message_reply_markup(reply_markup=None)
-        saved = await assistant.save_approved(proposal_id, content_hash, owner)
+        try:
+            saved = await assistant.save_approved(proposal_id, content_hash, owner, force=kind == "force")
+        except DuplicateDraftError as exc:
+            confirm = InlineKeyboardMarkup([[
+                InlineKeyboardButton("Trotzdem speichern", callback_data=f"force:{proposal_id}:{content_hash}"),
+                InlineKeyboardButton("Verwerfen", callback_data=f"drop:{proposal_id}"),
+            ]])
+            context.user_data["draft_message"] = await query.message.reply_text(f"⚠️ {exc}", reply_markup=confirm)
+            return
         context.user_data.pop("draft_message", None)
         await query.message.reply_text(
             f"✅ Entwurf gespeichert: „{saved.subject}“ an {', '.join(saved.to)}.\n"
