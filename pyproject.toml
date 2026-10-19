@@ -30,4 +30,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["live: calls the real NanoGPT API with synthetic corpus mails (opt-in, MAILASSIST_LIVE=1)"]
+markers = [
+    "live: calls the real NanoGPT API with synthetic corpus mails (opt-in, MAILASSIST_LIVE=1)",
+    "imap_server: runs against a real IMAP *test* server (opt-in, MAILASSIST_IMAP_TEST_SERVER)",
+]

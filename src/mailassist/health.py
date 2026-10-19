@@ -48,7 +48,12 @@ async def run_checks(
     try:
         async with mail_session() as mail:
             found = await mail.search(settings.inbox_folder, None, 1)
-        results.append(Check(mailbox, True, f"erreichbar, {settings.inbox_folder} lesbar ({len(found)} Testabruf)"))
+            folders = ""
+            if hasattr(mail, "sent_folder"):  # IMAP: show what was detected, the usual stumbling block
+                drafts = getattr(mail, "drafts_folder", None) or "NICHT GEFUNDEN – IMAP_DRAFTS_FOLDER setzen"
+                folders = f"; Entwürfe: {drafts}; Gesendet: {mail.sent_folder or 'nicht gefunden (Verlauf ohne eigene Antworten)'}"
+        ok = not folders or "NICHT GEFUNDEN" not in folders
+        results.append(Check(mailbox, ok, f"erreichbar, {settings.inbox_folder} lesbar ({len(found)} Testabruf){folders}"))
     except FileNotFoundError:
         results.append(Check(mailbox, False, f"'{settings.baryon_command}' nicht gefunden"))
     except AssistantError as exc:

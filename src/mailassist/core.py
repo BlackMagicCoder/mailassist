@@ -113,6 +113,22 @@ class Assistant:
             base_url=settings.nanogpt_base_url,
             max_tokens=settings.max_tokens,
         )
+        if settings.connector == "imap":
+            from .imap import ImapMail
+
+            own = sorted(settings.own_addresses)
+            return cls(
+                settings,
+                lambda: ImapMail(
+                    settings.imap_host, settings.imap_user, settings.imap_password, port=settings.imap_port,
+                    own_address=settings.imap_user if "@" in settings.imap_user else (own[0] if own else None),
+                    inbox=settings.inbox_folder, drafts_folder=settings.imap_drafts_folder,
+                    sent_folder=settings.imap_sent_folder,
+                ),
+                llm,
+                audit=AuditLog(data / "audit.jsonl"),
+                ledger=DraftLedger(data / "mailassist.sqlite"),
+            )
         return cls(
             settings,
             lambda: BaryonMail(

@@ -1,6 +1,8 @@
-# mailassist – Inbox-to-Action Copilot für Proton Mail
+# mailassist – Inbox-to-Action Copilot für dein Postfach
 
-mailassist ordnet eine ausgewählte Geschäftsmail ein, extrahiert die relevanten Angaben strukturiert, schlägt nächste Schritte vor und schreibt einen Antwortentwurf auf Basis **freigegebener Unternehmensinformationen**. Der Entwurf wird erst nach deiner ausdrücklichen Freigabe in Proton Mail gespeichert. **Versenden tust immer du selbst.** Bedienung per Kommandozeile oder Telegram.
+mailassist ordnet eine ausgewählte Geschäftsmail ein, extrahiert die relevanten Angaben strukturiert, schlägt nächste Schritte vor und schreibt einen Antwortentwurf auf Basis **freigegebener Unternehmensinformationen**. Der Entwurf wird erst nach deiner ausdrücklichen Freigabe im Entwürfe-Ordner deines Postfachs gespeichert. **Versenden tust immer du selbst.** Bedienung per Kommandozeile oder Telegram.
+
+Postfächer: **Proton Mail** (bezahlter Tarif, über Proton Mail Bridge), **T-Online und andere IMAP-Postfächer** (auch kostenlose) – oder die **Demo** ganz ohne Postfach.
 
 ```
 Du (Telegram oder Terminal)
@@ -17,11 +19,11 @@ Du (Telegram oder Terminal)
 
 | Schicht | Modul | Aufgabe |
 |---|---|---|
-| E-Mail-Connector | `mail.py` | Baryon MCP über stdio, Werkzeug-Allowlist, validierte Antworten (pydantic) |
+| E-Mail-Connector | `mail.py`, `imap.py`, `demo.py` | Proton über Baryon MCP (Werkzeug-Allowlist) · beliebiges IMAP-Postfach wie T-Online (Befehls-Wächter: nur lesen, Entwürfe ablegen) · Demo-Postfach mit synthetischen Mails |
 | Prozesslogik | `core.py`, `triage.py`, `knowledge.py`, `checks.py`, `prompt.py` | Lesen → Einordnen → Entwurf → Prüfen; Mailinhalt gilt als nicht vertrauenswürdig |
 | LLM-Adapter | `llm.py` | NanoGPT (Anthropic-Messages-Format), Wiederholung bei Störungen, JSON-Modus mit Validierung |
 | Freigabe | `approval.py`, `audit.py` | Freigabe an Entwurf + Inhalts-Hash gebunden, Duplikat-Erkennung, Prüfprotokoll ohne Inhalte |
-| Oberflächen | `cli.py`, `telegram_bot.py` | dünne Schichten über dem Kern |
+| Oberflächen | `cli.py`, `telegram_bot.py`, `dataflow.py` | dünne Schichten über dem Kern; Datenfluss-Ansicht |
 
 Ein späterer Microsoft-Graph-Connector ist geplant, aber nicht umgesetzt: [docs/graph-connector.md](docs/graph-connector.md).
 
@@ -45,6 +47,7 @@ uv run mailassist --demo bot                                # Telegram-Demo (bra
 ## Sicherheitsgrenzen
 
 - **Kein Versand möglich.** Baryon hat kein Sende-Werkzeug (Quellcode v0.6.3 geprüft); mailassist ruft zusätzlich nur vier freigegebene Werkzeuge auf (`search_emails`, `get_email`, `get_thread`, `save_reply_draft`) und verweigert alle anderen im Code. Das Modell bekommt keine Werkzeuge – es kann nur Text zurückgeben.
+- **Bei IMAP (T-Online & Co.)** greift der Connector nur über einen Wächter auf die Verbindung zu: Ordner werden schreibgeschützt geöffnet, Mails ohne „gelesen“-Markierung abgerufen, abgelegt wird nur in den Entwürfe-Ordner mit Entwurfs-Kennzeichen. Löschen, Verschieben, Flags setzen gibt es dort nicht – und SMTP (Senden) kommt in mailassist überhaupt nicht vor (per Test geprüft).
 - **Keine Änderungen an bestehenden Mails.** Nichts wird gelöscht, verschoben oder als gelesen markiert. Neu angelegt werden nur Entwürfe.
 - **Freigabe an den Entwurf gebunden.** Gespeichert wird nur der Entwurf, dessen ID und Inhalts-Hash freigegeben wurden – einmal, von dir. Ein Knopf unter einem älteren Entwurf speichert nichts. Ein fehlgeschlagenes Speichern wird nie automatisch wiederholt (Bridge könnte den Entwurf trotzdem angelegt haben).
 - **Kein zweiter Entwurf ohne Rückfrage.** Wurde zu einer Mail schon ein Entwurf gespeichert, fragt mailassist nach.
@@ -65,7 +68,27 @@ uv run mailassist --demo bot                                # Telegram-Demo (bra
   - `audit.jsonl` – Prüfprotokoll: Zeitpunkt, Ereignis, Entwurfs-ID, gekürzter Hash der Message-ID und des Entwurfs, Modell, Grund – **kein Inhalt** (per Test abgesichert)
   - `mailassist.sqlite` – für welche Nachrichten (Hash) schon ein Entwurf gespeichert wurde
 
-## Voraussetzungen
+## Mit T-Online (oder einem anderen IMAP-Postfach)
+
+Für kostenlose Postfächer ohne Proton Bridge. Kein Baryon nötig.
+
+1. **Am besten eine eigene, neue Adresse zum Testen anlegen** – nicht das Hauptpostfach.
+2. Im Telekom E-Mail-Center unter den Einstellungen bei **„POP3- / SMTP- / IMAP-Zugang“** ein **Passwort für E-Mail-Programme** festlegen. Das normale Telekom-Login-Passwort wird nicht verwendet und gehört nicht in die `.env`.
+3. In der `.env`:
+   ```
+   MAILASSIST_CONNECTOR=imap
+   IMAP_USER=deine-adresse@t-online.de
+   IMAP_PASSWORD=dein-passwort-fuer-e-mail-programme
+   # IMAP_HOST=secureimap.t-online.de   (Standard, Port 993, verschlüsselt)
+   ```
+4. `uv run mailassist check` – zeigt, ob die Anmeldung klappt und welche Ordner für **Entwürfe** und **Gesendet** erkannt wurden. Wird kein Entwürfe-Ordner gefunden, den Namen aus der Meldung mit `IMAP_DRAFTS_FOLDER` setzen.
+5. Dann wie gewohnt `neu`, `suche`, `analysiere`, `antworte`. Entwürfe landen im Entwürfe-Ordner des Postfachs; versenden tust du selbst im Telekom-Webmailer oder Mailprogramm.
+
+Unterschiede zu Proton: Es gibt keinen Ordner „All Mail“ – gesucht wird im Posteingang (`MAILASSIST_SEARCH_FOLDER` ändert das), der Verlauf wird über die Antwort-Kopfzeilen aus Posteingang und „Gesendet“ zusammengesetzt. Andere Anbieter (GMX, web.de, Posteo, mailbox.org, Gmail mit App-Passwort …) funktionieren über `IMAP_HOST`; bei manchen muss IMAP erst in den Einstellungen aktiviert werden.
+
+> **Stand:** Der IMAP-Connector ist gegen einen nachgebauten IMAP-Client getestet (inkl. T-Online-typischer Ordnernamen wie „Entwürfe“). Gegen den echten T-Online-Server lief er noch **nicht** – der erste Test mit deiner Test-Adresse ist der Abnahmetest. Für einen lokalen Test-Mailserver gibt es einen optionalen Integrationstest (`MAILASSIST_IMAP_TEST_SERVER`, siehe `tests/test_imap.py`).
+
+## Voraussetzungen (Proton-Variante)
 
 - Proton-Konto mit Zugang zu **Proton Mail Bridge** (Bridge ist nach unserem Kenntnisstand kostenpflichtigen Tarifen vorbehalten – bitte prüfen)
 - **Baryon MCP** v0.6.3 (<https://github.com/combor/baryon-mcp>)
@@ -219,6 +242,10 @@ Erster Schritt immer: `uv run mailassist check --llm --telegram`.
 | `Zu dieser Mail wurde bereits ein Entwurf gespeichert` | Absichtlich: erst nach Bestätigung wird ein weiterer gespeichert. |
 | `Dieser Entwurf ist veraltet` | Du hast einen Knopf unter einem älteren Entwurf gedrückt – den aktuellen verwenden. |
 | `Konfigurationsfehler: …` | Pflichtwert in `.env` fehlt, Meldung nennt ihn. |
+| `IMAP-Anmeldung fehlgeschlagen` | Bei T-Online das **Passwort für E-Mail-Programme** verwenden (nicht das Telekom-Login-Passwort); prüfen, ob der IMAP-Zugang im E-Mail-Center aktiviert ist. |
+| `IMAP-Server nicht erreichbar` | `IMAP_HOST`/`IMAP_PORT` prüfen (T-Online: `secureimap.t-online.de`, 993), Internetverbindung, Firewall. |
+| `Entwürfe: NICHT GEFUNDEN` in `check` | Ordnernamen aus der Meldung übernehmen: `IMAP_DRAFTS_FOLDER=…` in `.env`. |
+| Verlauf ohne eigene Antworten (IMAP) | „Gesendet“-Ordner nicht erkannt: `IMAP_SENT_FOLDER=…` setzen. |
 | Bot reagiert nicht | Eigene ID nicht in `TELEGRAM_ALLOWED_USER_IDS` (Log zeigt `ignored update from user id=…`), oder Dienst gestoppt: `journalctl --user -u mailassist-bot`. |
 | Keine Treffer bei `/suche` / unvollständiger Verlauf | Suche und Verlauf nutzen den Ordner `All Mail`. Heißt er bei dir anders, `MAILASSIST_SEARCH_FOLDER` setzen. |
 | Wissensbasis wird nicht benutzt | `mailassist check` zeigt geladene und übersprungene Dateien samt Grund. |

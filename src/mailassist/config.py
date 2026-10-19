@@ -36,9 +36,15 @@ class Settings:
     knowledge_dir: str = "knowledge"
     # Baryon version whose source was reviewed; empty string disables the check.
     baryon_version: str = "0.6.3"
-    # Mail connector: "baryon" (Proton via Bridge) or "demo" (synthetic mailbox + mock model).
+    # Mail connector: "baryon" (Proton via Bridge), "imap" (T-Online, GMX, …) or "demo" (synthetic + mock model).
     connector: str = "baryon"
     demo_model: str = "vorsichtig"  # demo only: "vorsichtig" or "naiv" (obeys injections on purpose)
+    imap_host: str = "secureimap.t-online.de"
+    imap_port: int = 993
+    imap_user: str = ""
+    imap_password: str = field(default="", repr=False)
+    imap_drafts_folder: str | None = None
+    imap_sent_folder: str | None = None
 
     @classmethod
     def for_demo(cls, env: Mapping[str, str] | None = None, naive: bool = False) -> Settings:
@@ -70,9 +76,29 @@ class Settings:
         try:
             user_ids = frozenset(int(v) for v in _split(env.get("TELEGRAM_ALLOWED_USER_IDS")))
             max_tokens = int(env.get("MAILASSIST_MAX_TOKENS", "2000"))
+            imap_port = int(env.get("IMAP_PORT", "993"))
         except ValueError as exc:
             raise ConfigError(f"Ungültige Zahl in der Konfiguration: {exc}") from None
+        connector = env.get("MAILASSIST_CONNECTOR", "baryon").strip().lower() or "baryon"
+        if connector not in ("baryon", "imap"):
+            raise ConfigError(f"MAILASSIST_CONNECTOR muss 'baryon' oder 'imap' sein (für die Demo: --demo), nicht {connector!r}.")
+        imap_user = env.get("IMAP_USER", "").strip()
+        imap_password = env.get("IMAP_PASSWORD", "")
+        if connector == "imap" and not (imap_user and imap_password):
+            raise ConfigError("Für MAILASSIST_CONNECTOR=imap müssen IMAP_USER und IMAP_PASSWORD gesetzt sein.")
+        own = {a.lower() for a in _split(env.get("MAILASSIST_OWN_ADDRESSES"))}
+        if connector == "imap" and "@" in imap_user:
+            own.add(imap_user.lower())
+        # Proton has an "All Mail" folder; plain IMAP servers usually do not.
+        default_search = "INBOX" if connector == "imap" else "All Mail"
         return cls(
+            connector=connector,
+            imap_host=env.get("IMAP_HOST", "secureimap.t-online.de").strip(),
+            imap_port=imap_port,
+            imap_user=imap_user,
+            imap_password=imap_password,
+            imap_drafts_folder=env.get("IMAP_DRAFTS_FOLDER", "").strip() or None,
+            imap_sent_folder=env.get("IMAP_SENT_FOLDER", "").strip() or None,
             nanogpt_api_key=key,
             telegram_token=env.get("TELEGRAM_BOT_TOKEN", "").strip() or None,
             telegram_allowed_user_ids=user_ids,
@@ -81,8 +107,8 @@ class Settings:
             max_tokens=max_tokens,
             baryon_command=env.get("BARYON_COMMAND", "baryon-mcp"),
             inbox_folder=env.get("MAILASSIST_INBOX_FOLDER", "INBOX"),
-            search_folder=env.get("MAILASSIST_SEARCH_FOLDER", "All Mail"),
-            own_addresses=frozenset(a.lower() for a in _split(env.get("MAILASSIST_OWN_ADDRESSES"))),
+            search_folder=env.get("MAILASSIST_SEARCH_FOLDER", default_search),
+            own_addresses=frozenset(own),
             signature=env.get("MAILASSIST_SIGNATURE", "").replace("\\n", "\n").strip() or None,
             data_dir=env.get("MAILASSIST_DATA_DIR", "data"),
             knowledge_dir=env.get("MAILASSIST_KNOWLEDGE_DIR", "knowledge"),
@@ -90,4 +116,4 @@ class Settings:
         )
 
     def secrets(self) -> list[str]:
-        return [s for s in (self.nanogpt_api_key, self.telegram_token) if s]
+        return [s for s in (self.nanogpt_api_key, self.telegram_token, self.imap_password) if s]
