@@ -1,0 +1,12 @@
+# systemd user service: ~/.config/systemd/user/protonmail-bridge.service
+[Unit]
+Description=Proton Mail Bridge (headless)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/protonmail-bridge --noninteractive
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

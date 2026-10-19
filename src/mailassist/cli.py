@@ -1,0 +1,136 @@
+"""Command line: mailassist neu | suche TEXT | antworte NR | bot."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import logging
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from .config import ConfigError, Settings
+from .core import Assistant, DraftProposal
+from .llm import LLMError
+from .logs import setup_logging
+from .mail import EmailSummary, MailError, MessageRef
+
+PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an NanoGPT (und Anthropic) übertragen."
+RESULTS_FILE = "letzte_liste.json"
+
+
+def _results_path(settings: Settings) -> Path:
+    return Path(settings.data_dir) / RESULTS_FILE
+
+
+def _store_results(settings: Settings, results: list[EmailSummary]) -> None:
+    # Only message references are stored locally, no subjects or content.
+    path = _results_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps([vars(r.ref) for r in results]), encoding="utf-8")
+
+
+def _load_ref(settings: Settings, number: int) -> MessageRef:
+    try:
+        refs = json.loads(_results_path(settings).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise SystemExit("Keine Liste vorhanden. Zuerst 'mailassist neu' oder 'mailassist suche TEXT' ausführen.")
+    if not 1 <= number <= len(refs):
+        raise SystemExit(f"Nummer {number} gibt es in der letzten Liste nicht (1–{len(refs)}).")
+    return MessageRef(**refs[number - 1])
+
+
+def _print_results(results: list[EmailSummary]) -> None:
+    if not results:
+        print("Keine Nachrichten gefunden.")
+    for i, r in enumerate(results, 1):
+        print(f"{i:>3}. {r.date[:16].replace('T', ' ')}  {r.sender}\n     {r.subject}")
+
+
+def _print_proposal(p: DraftProposal) -> None:
+    print(f"\n--- Entwurf an {p.recipient} — {p.reply_subject} ({p.model}) ---\n")
+    print(p.body)
+    print("\n--- Ende des Entwurfs ---")
+    if p.todo_count:
+        print(f"Achtung: {p.todo_count} offene [[TODO]]-Stelle(n) vor dem Versand ergänzen.")
+
+
+async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None) -> None:
+    print(PRIVACY_NOTE)
+    proposal = await assistant.propose(ref, instruction)
+    while True:
+        _print_proposal(proposal)
+        choice = input("\nAls Entwurf in Proton Mail speichern? [j]a / [n]ein / [ä]ndern: ").strip().lower()
+        if choice in ("j", "ja", "y"):
+            saved = await assistant.save(proposal)
+            print(f"Entwurf gespeichert: „{saved.subject}“ an {', '.join(saved.to)}. "
+                  "Bitte in Proton Mail prüfen und selbst senden.")
+            return
+        if choice in ("n", "nein"):
+            print("Verworfen, nichts gespeichert.")
+            return
+        if choice in ("ä", "a", "aendern", "ändern"):
+            change = input("Was soll geändert werden? ").strip()
+            proposal = await assistant.propose(ref, instruction, previous=proposal, change_request=change)
+            continue
+        print("Bitte j, n oder ä eingeben.")
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="mailassist", description="KI-Antwortentwürfe für Proton Mail (sendet nie selbst).")
+    sub = parser.add_subparsers(dest="command", required=True)
+    neu = sub.add_parser("neu", help="neueste Nachrichten im Posteingang auflisten")
+    neu.add_argument("-n", type=int, default=10, help="Anzahl (Standard 10)")
+    suche = sub.add_parser("suche", help="Postfach durchsuchen")
+    suche.add_argument("text", nargs="+")
+    suche.add_argument("-n", type=int, default=10, help="Anzahl (Standard 10)")
+    antworte = sub.add_parser("antworte", help="Antwortentwurf zu einer Nachricht aus der letzten Liste erstellen")
+    antworte.add_argument("nummer", type=int)
+    antworte.add_argument("--hinweis", help='z. B. "freundliche Absage"')
+    antworte.add_argument("--sprache", help="Antwortsprache erzwingen, z. B. de oder en")
+    sub.add_parser("bot", help="Telegram-Bot starten")
+    return parser
+
+
+async def _run(args: argparse.Namespace, settings: Settings) -> None:
+    assistant = Assistant.from_settings(settings)
+    if args.command == "neu":
+        results = await assistant.recent(args.n)
+    elif args.command == "suche":
+        results = await assistant.search(" ".join(args.text), args.n)
+    else:
+        instruction = args.hinweis
+        if args.sprache:
+            instruction = f"{instruction or 'Write an appropriate reply.'} Reply in language: {args.sprache}."
+        await _reply(assistant, _load_ref(settings, args.nummer), instruction)
+        return
+    _store_results(settings, results)
+    _print_results(results)
+
+
+def main(argv: list[str] | None = None) -> None:
+    for stream in (sys.stdin, sys.stdout):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    load_dotenv()
+    args = _parser().parse_args(argv)
+    try:
+        settings = Settings.from_env()
+    except ConfigError as exc:
+        raise SystemExit(f"Konfigurationsfehler: {exc}")
+    setup_logging(settings.secrets(), logging.INFO if args.command == "bot" else logging.WARNING)
+    if args.command == "bot":
+        from .telegram_bot import run_bot
+
+        run_bot(settings)
+        return
+    try:
+        asyncio.run(_run(args, settings))
+    except (MailError, LLMError) as exc:
+        raise SystemExit(f"Fehler: {exc}")
+    except FileNotFoundError:
+        raise SystemExit(f"'{settings.baryon_command}' nicht gefunden. Ist Baryon MCP installiert und im PATH?")
+    except KeyboardInterrupt:
+        raise SystemExit("Abgebrochen, nichts gespeichert.")

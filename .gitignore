@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# Secrets and credentials (mail passwords, OAuth tokens)
+.env
+.env.*
+!.env.example
+*token*.json
+credentials*.json
+
+# Local mail data — never commit
+data/
+*.eml
+*.mbox
+*.msg
+
+# IDE (keep shared .idea config, drop per-user state)
+.idea/workspace.xml
+.idea/shelf/

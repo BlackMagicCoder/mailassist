@@ -1,0 +1,17 @@
+# systemd user service: ~/.config/systemd/user/mailassist-bot.service
+[Unit]
+Description=mailassist Telegram-Bot (erstellt nur Entwürfe, sendet nie)
+After=protonmail-bridge.service network-online.target
+Wants=protonmail-bridge.service
+
+[Service]
+WorkingDirectory=%h/mailassist
+ExecStart=%h/.local/bin/uv run --no-dev mailassist bot
+Restart=on-failure
+RestartSec=15
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
