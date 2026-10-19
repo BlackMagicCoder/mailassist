@@ -103,9 +103,8 @@ class Assistant:
             company_facts=facts,
         )
         completion = await self._llm.complete(system_prompt(self._settings.signature), user)
-        sources = mail_sources(email, thread) + [
-            date_variants(email.date), instruction or "", change_request or "", facts or "", self._settings.signature or "",
-        ]
+        trusted = [instruction or "", change_request or "", facts or "", self._settings.signature or ""]
+        sources = mail_sources(email, thread) + [date_variants(email.date)] + trusted
         proposal = DraftProposal(
             ref=ref,
             subject=email.subject,
@@ -113,7 +112,7 @@ class Assistant:
             body=completion.text,
             model=completion.model,
             message_id=email.message_id,
-            warnings=tuple(unsupported_claims(completion.text, sources)),
+            warnings=tuple(unsupported_claims(completion.text, sources, trusted_sources=trusted)),
         )
         self._gate.register(proposal, owner)
         self._audit.record(

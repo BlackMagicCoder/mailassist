@@ -71,7 +71,7 @@ def test_invented_numbers_links_and_addresses_are_flagged():
         "zahlung@evil.example.", FACTS, "Bitte Angebot für 3 Stück",
     )
     text = " ".join(found)
-    assert "„15“" in text and "https://evil.example/x" in text and "zahlung@evil.example" in text
+    assert "„15 %“" in text and "https://evil.example/x" in text and "zahlung@evil.example" in text
     # Known limitation, documented in the README: the check is context-free. "2" is backed
     # by "2 Werktage"/"2 % Skonto" in the facts, so a misapplied "2 Tagen" is NOT flagged.
     assert "„2“" not in text
@@ -92,4 +92,4 @@ async def test_propose_uses_knowledge_and_attaches_warnings():
     user = llm.complete.await_args.args[1]
     assert "<company_facts>" in user and "Listenpreis 4.850 €" in user
     assert "aktion-herbst" not in user and "5.150" not in user  # expired / unapproved never reach the model
-    assert len(proposal.warnings) == 1 and "„20“" in proposal.warnings[0]
+    assert len(proposal.warnings) == 1 and "„20 %“" in proposal.warnings[0]

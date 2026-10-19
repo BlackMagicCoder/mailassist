@@ -117,8 +117,19 @@ def _parse(model: type[W], data: Any, tool: str) -> W:
 
 # --- helpers -------------------------------------------------------------------------
 
+_HIDDEN = re.compile(
+    r"""(?is)<(\w+)\b[^>]*style\s*=\s*["'][^"']*"""
+    r"""(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?![.\d]*[1-9])|opacity\s*:\s*0(?![.\d]*[1-9]))"""
+    r"""[^"']*["'][^>]*>.*?</\1\s*>"""
+)
+
+
 def html_to_text(markup: str) -> str:
+    """Visible text only. Hidden elements are dropped: the owner cannot see them in
+    Proton Mail, so they must not reach the model either (classic injection carrier)."""
     markup = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", markup)
+    markup = re.sub(r"(?is)<!--.*?-->", "", markup)
+    markup = _HIDDEN.sub("", markup)
     markup = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</li>|</tr>", "\n", markup)
     text = html.unescape(re.sub(r"<[^>]+>", "", markup))
     return re.sub(r"\n{3,}", "\n\n", text).strip()
