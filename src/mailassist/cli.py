@@ -157,7 +157,7 @@ async def _run(args: argparse.Namespace, settings: Settings) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    for stream in (sys.stdin, sys.stdout):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     load_dotenv()

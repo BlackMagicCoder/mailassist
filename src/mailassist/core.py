@@ -103,7 +103,7 @@ class Assistant:
         # Reloaded per draft so edits and expiry dates apply without a restart.
         entries, skipped = load_knowledge(self._settings.knowledge_dir)
         for reason in skipped:
-            log.warning("knowledge skipped: %s", reason)
+            log.info("knowledge skipped: %s", reason)  # also shown by "mailassist check"
         facts = facts_block(select_facts(entries, f"{email.subject}\n{email.body}\n{instruction or ''}")) or None
         user = build_user_prompt(
             email,

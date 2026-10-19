@@ -1,31 +1,52 @@
-# mailassist – KI-Antwortentwürfe für Proton Mail
+# mailassist – Inbox-to-Action Copilot für Proton Mail
 
-mailassist liest eine von dir ausgewählte E-Mail samt Verlauf, lässt Claude Sonnet (über NanoGPT) einen Antwortentwurf schreiben und speichert ihn – nach deiner Bestätigung – als Entwurf in Proton Mail. **Versenden tust immer du selbst.** Bedienung per Kommandozeile oder Telegram.
+mailassist ordnet eine ausgewählte Geschäftsmail ein, extrahiert die relevanten Angaben strukturiert, schlägt nächste Schritte vor und schreibt einen Antwortentwurf auf Basis **freigegebener Unternehmensinformationen**. Der Entwurf wird erst nach deiner ausdrücklichen Freigabe in Proton Mail gespeichert. **Versenden tust immer du selbst.** Bedienung per Kommandozeile oder Telegram.
 
 ```
 Du (Telegram oder Terminal)
-      │
+      │  Auswahl, Anweisung, Freigabe
   mailassist ──► Baryon MCP ──► Proton Mail Bridge (nur 127.0.0.1) ──► Proton
       │
+      ├── Analyse: Kategorie, Fakten mit Belegstelle, offene Fragen, nächste Schritte (nur Vorschläge)
+      ├── Entwurf: nur aus Mail, Verlauf, deiner Anweisung und der freigegebenen Wissensbasis
+      ├── Prüfung: ungestützte Zahlen, Links, Adressen, Prozent-Zusagen → Warnung vor der Freigabe
       └──────► NanoGPT ──► Claude Sonnet   (erhält nur die gewählte Unterhaltung, keine Werkzeuge)
 ```
 
+## Architektur
+
+| Schicht | Modul | Aufgabe |
+|---|---|---|
+| E-Mail-Connector | `mail.py` | Baryon MCP über stdio, Werkzeug-Allowlist, validierte Antworten (pydantic) |
+| Prozesslogik | `core.py`, `triage.py`, `knowledge.py`, `checks.py`, `prompt.py` | Lesen → Einordnen → Entwurf → Prüfen; Mailinhalt gilt als nicht vertrauenswürdig |
+| LLM-Adapter | `llm.py` | NanoGPT (Anthropic-Messages-Format), Wiederholung bei Störungen, JSON-Modus mit Validierung |
+| Freigabe | `approval.py`, `audit.py` | Freigabe an Entwurf + Inhalts-Hash gebunden, Duplikat-Erkennung, Prüfprotokoll ohne Inhalte |
+| Oberflächen | `cli.py`, `telegram_bot.py` | dünne Schichten über dem Kern |
+
+Ein späterer Microsoft-Graph-Connector ist geplant, aber nicht umgesetzt: [docs/graph-connector.md](docs/graph-connector.md).
+
 ## Sicherheitsgrenzen
 
-- **Kein Versand möglich.** Baryon hat kein Sende-Werkzeug; mailassist ruft zusätzlich nur vier freigegebene Werkzeuge auf (`search_emails`, `get_email`, `get_thread`, `save_reply_draft`) und verweigert alle anderen im Code. Das Modell bekommt überhaupt keine Werkzeuge – es kann nur Text zurückgeben.
+- **Kein Versand möglich.** Baryon hat kein Sende-Werkzeug (Quellcode v0.6.3 geprüft); mailassist ruft zusätzlich nur vier freigegebene Werkzeuge auf (`search_emails`, `get_email`, `get_thread`, `save_reply_draft`) und verweigert alle anderen im Code. Das Modell bekommt keine Werkzeuge – es kann nur Text zurückgeben.
 - **Keine Änderungen an bestehenden Mails.** Nichts wird gelöscht, verschoben oder als gelesen markiert. Neu angelegt werden nur Entwürfe.
-- **Speichern nur auf Bestätigung.** Ein Entwurf landet erst in Proton Mail, wenn du „j“ bzw. „Speichern“ wählst.
-- **Mailinhalt gilt als nicht vertrauenswürdig.** Anweisungen in eingehenden Mails („ignoriere alle Regeln …“) werden dem Modell als Daten markiert und nicht befolgt.
-- **Keine erfundenen Fakten.** Fehlt dem Modell eine Information (Termin, Preis, Zusage), setzt es `[[TODO: …]]`. Diese Stellen vor dem Versand ergänzen.
-- **Telegram:** Der Bot bedient nur die Nutzer-IDs in `TELEGRAM_ALLOWED_USER_IDS`; alles andere wird verworfen.
+- **Freigabe an den Entwurf gebunden.** Gespeichert wird nur der Entwurf, dessen ID und Inhalts-Hash freigegeben wurden – einmal, von dir. Ein Knopf unter einem älteren Entwurf speichert nichts. Ein fehlgeschlagenes Speichern wird nie automatisch wiederholt (Bridge könnte den Entwurf trotzdem angelegt haben).
+- **Kein zweiter Entwurf ohne Rückfrage.** Wurde zu einer Mail schon ein Entwurf gespeichert, fragt mailassist nach.
+- **Mailinhalt gilt als nicht vertrauenswürdig.** Anweisungen in eingehenden Mails werden als Daten markiert und nicht befolgt; Abgrenzungs-Tags lassen sich auch mit Doppelgänger-Zeichen nicht imitieren; versteckter HTML-Text erreicht das Modell nicht; gefälschte Absendernamen gelten nicht als „du“.
+- **Keine erfundenen Fakten.** Preise, Fristen, Konditionen und andere Zusagen nur aus der Wissensbasis oder deiner Anweisung, sonst `[[TODO: …]]`.
+- **Nächste Schritte sind Vorschläge.** Nichts davon wird ausgeführt; Schritte, die ein anderes System ändern würden, sind gekennzeichnet.
+- **Baryon-Version festgelegt.** Startet eine andere als die geprüfte Version, verweigert mailassist den Zugriff (`MAILASSIST_BARYON_VERSION`).
+- **Telegram:** Der Bot bedient nur die Nutzer-IDs in `TELEGRAM_ALLOWED_USER_IDS`; alles andere wird vor jeder Verarbeitung verworfen.
 
 ## Datenschutz – bitte lesen
 
-- **Der Inhalt der gewählten Unterhaltung wird an NanoGPT übertragen und von dort an Anthropic (Claude) weitergegeben.** Übertragen werden nur: die ausgewählte Mail, die bisherigen Nachrichten dieser Unterhaltung (gekürzt, max. ca. 40 000 Zeichen) und deine Anweisung. Andere Mails verlassen den Server nicht. Eine Seite zu Speicherdauer/Datenverwendung haben wir in der NanoGPT-Dokumentation nicht gefunden – prüfe die Bedingungen von NanoGPT selbst, bevor du vertrauliche Mails verarbeitest.
-- **Telegram-Bot-Chats sind nicht Ende-zu-Ende-verschlüsselt.** Im Bot-Modus liegen Absender, Betreffzeilen und Entwurfstexte auch bei Telegram.
+- **Der Inhalt der gewählten Unterhaltung wird an NanoGPT übertragen und von dort an Anthropic (Claude) weitergegeben** – für die Analyse und für jeden Entwurf. Übertragen werden: die ausgewählte Mail, die bisherigen Nachrichten dieser Unterhaltung (gekürzt, max. ca. 40 000 Zeichen), deine Anweisung und passende Einträge der Wissensbasis. Andere Mails verlassen den Server nicht. Eine Seite zu Speicherdauer/Datenverwendung haben wir in der NanoGPT-Dokumentation nicht gefunden – prüfe die Bedingungen selbst, bevor du vertrauliche Mails verarbeitest.
+- **Telegram-Bot-Chats sind nicht Ende-zu-Ende-verschlüsselt.** Im Bot-Modus liegen Absender, Betreffzeilen, Analyse und Entwurfstexte auch bei Telegram. Fehlermeldungen an Telegram enthalten nie Server- oder Mailtexte.
 - **Gemieteter Server:** Bridge entschlüsselt dein Postfach auf dem Server. Wer den Server kontrolliert (auch der Hoster), kann technisch darauf zugreifen.
-- **Logs** enthalten nur Nachrichten-IDs, Zeichenzahlen und den Modellnamen – keine Mailinhalte, keine Schlüssel (Schlüssel werden zusätzlich automatisch geschwärzt).
-- Lokal gespeichert wird nur die letzte Trefferliste als Nachrichten-Referenzen (`data/letzte_liste.json`, ohne Betreff oder Inhalt).
+- **Logs** enthalten nur IDs, Zählwerte und den Modellnamen – keine Mailinhalte. Schlüssel werden zusätzlich automatisch geschwärzt, auch in Tracebacks.
+- **Lokal gespeichert** (alles unter `data/`, von git ignoriert, unter Linux mit Rechten 600):
+  - `letzte_liste.json` – Nachrichten-Referenzen der letzten Trefferliste, ohne Betreff oder Inhalt
+  - `audit.jsonl` – Prüfprotokoll: Zeitpunkt, Ereignis, Entwurfs-ID, gekürzter Hash der Message-ID und des Entwurfs, Modell, Grund – **kein Inhalt** (per Test abgesichert)
+  - `mailassist.sqlite` – für welche Nachrichten (Hash) schon ein Entwurf gespeichert wurde
 
 ## Voraussetzungen
 
@@ -87,16 +108,18 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 cd ~/mailassist
 uv sync --no-dev
 cp .env.example .env && chmod 600 .env && nano .env    # NANOGPT_API_KEY eintragen
-uv run mailassist neu                                  # Test: listet die neuesten Mails
+mkdir -p knowledge                                      # Wissensbasis anlegen (siehe unten)
+uv run mailassist check --llm                           # Ampel: Konfiguration, Postfach, NanoGPT
 ```
 
 **5. Telegram-Bot.**
 
 1. In Telegram **@BotFather** → `/newbot` → Token in `.env` als `TELEGRAM_BOT_TOKEN` eintragen.
 2. Eigene Nutzer-ID herausfinden: `TELEGRAM_ALLOWED_USER_IDS=0` setzen, `uv run mailassist bot` starten, dem Bot eine Nachricht schicken. Im Log erscheint `ignored update from user id=123456789`. Diese Zahl eintragen, Bot neu starten.
-3. Als Dienst:
+3. Prüfen und als Dienst starten:
 
 ```bash
+uv run mailassist check --telegram
 cp deploy/mailassist-bot.service ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now mailassist-bot
 journalctl --user -u mailassist-bot -f      # Log ansehen
@@ -106,7 +129,23 @@ journalctl --user -u mailassist-bot -f      # Log ansehen
 
 1. Proton Mail Bridge für Windows installieren, anmelden, unter *Einstellungen → Erweitert → TLS-Zertifikate exportieren* `cert.pem` speichern.
 2. Baryon: `baryon-mcp_0.6.3_windows_amd64.zip` und `baryon-mcp_0.6.3_SHA256SUMS` von der Release-Seite laden, `Get-FileHash baryon-mcp_*.zip -Algorithm SHA256` mit der Datei vergleichen, `baryon-mcp.exe` in einen Ordner im `PATH` entpacken, dann `baryon-mcp setup --skip-client-config`. Das Passwort landet in der Windows-Anmeldeinformationsverwaltung.
-3. Im Projektordner: `uv sync`, `.env.example` nach `.env` kopieren, `NANOGPT_API_KEY` eintragen.
+3. Im Projektordner: `uv sync`, `.env.example` nach `.env` kopieren, `NANOGPT_API_KEY` eintragen, `uv run mailassist check`.
+
+## Wissensbasis (freigegebene Unternehmensinformationen)
+
+Eine Markdown-Datei pro Thema im Ordner `knowledge/` (anpassbar über `MAILASSIST_KNOWLEDGE_DIR`). Verwendet wird eine Datei nur mit Freigabe im Kopf:
+
+```markdown
+---
+title: Lieferbedingungen
+approved_by: Vertrieb (K. Muster)
+approved_on: 2026-10-01
+valid_until: 2026-12-31      # optional
+---
+- Lieferzeit Förderbänder: 3 bis 4 Wochen ab Auftragsbestätigung.
+```
+
+Ohne `approved_by`/`approved_on`, mit Freigabedatum in der Zukunft oder nach `valid_until` wird die Datei übersprungen (Grund im Log und in `mailassist check`). Änderungen wirken ab dem nächsten Entwurf, ohne Neustart. Ein vollständiges Beispiel einer fiktiven Firma liegt in `examples/knowledge/` (zum Ausprobieren: `MAILASSIST_KNOWLEDGE_DIR=examples/knowledge`).
 
 ## Nutzung
 
@@ -116,50 +155,68 @@ journalctl --user -u mailassist-bot -f      # Log ansehen
 |---|---|
 | `/neu` | neueste Mails im Posteingang als Buttons |
 | `/suche Angebot Müller` | Suchtreffer im ganzen Postfach als Buttons |
-| Button antippen | „Was soll die Antwort sagen?“ |
-| `freundliche Absage` (oder `-` für einen allgemeinen Vorschlag) | zeigt den Entwurf mit **Speichern / Ändern / Verwerfen** |
-| **Ändern** → `kürzer und förmlicher` | überarbeiteter Entwurf |
+| Button antippen | **Analyse**: Kategorie, Dringlichkeit, Fakten (✓ belegt / unsicher / unbekannt), Fragen des Absenders, vorgeschlagene nächste Schritte – dann „Was soll die Antwort sagen?“ |
+| `freundliche Absage` (oder `-` für einen allgemeinen Vorschlag) | zeigt den vollständigen Entwurf (lange Entwürfe in mehreren Teilen) mit Hinweisen und **Speichern / Ändern / Verwerfen** unter dem letzten Teil |
+| **Ändern** → `kürzer und förmlicher` | überarbeiteter Entwurf; die Knöpfe des alten Entwurfs verschwinden |
 | **Speichern** | „Entwurf gespeichert … bitte in Proton Mail prüfen und selbst senden“ |
 
-Danach in der Proton-Mail-App den Entwurf öffnen, `[[TODO]]`-Stellen ergänzen, senden.
+Danach in der Proton-Mail-App den Entwurf öffnen, `[[TODO]]`-Stellen und markierte Angaben prüfen, senden.
 
 ### Kommandozeile
 
 ```bash
 uv run mailassist neu                     # neueste Mails im Posteingang
 uv run mailassist suche Angebot Müller    # Postfach durchsuchen
+uv run mailassist analysiere 2            # einordnen, Fakten extrahieren, nächste Schritte vorschlagen
 uv run mailassist antworte 2 --hinweis "freundliche Absage"
 uv run mailassist antworte 2 --sprache en # Antwortsprache erzwingen
+uv run mailassist check [--llm] [--telegram]   # Erreichbarkeit prüfen
 ```
 
-`antworte` zeigt den Entwurf und fragt: `[j]a` speichern, `[n]ein` verwerfen, `[ä]ndern` mit Änderungswunsch.
+`antworte` zeigt den Entwurf mit Hinweisen und fragt: `[j]a` speichern, `[n]ein` verwerfen, `[ä]ndern` mit Änderungswunsch.
 
 Die Antwort wird in der Sprache der eingegangenen Mail geschrieben, außer du gibst etwas anderes an. Mit `MAILASSIST_SIGNATURE` in `.env` bekommt jeder Entwurf deine Signatur.
 
+## Grenzen – bitte kennen
+
+- **Die Ausgabeprüfung ist kontextfrei.** Sie findet Zahlen, Links, Adressen und Prozentangaben, die *nirgends* belegt sind. Eine belegte Zahl im falschen Zusammenhang („Lieferung in 2 Tagen“, weil „2 Werktage“ für Ersatzteile in der Wissensbasis steht) fällt nicht auf.
+- **Wort-Zusagen** („kostenlos“, „selbstverständlich erstatten wir“) erkennt die Prüfung nicht. Dafür gibt es die Prompt-Regeln – und deine Freigabe.
+- **Die Analyse ist eine Einschätzung des Modells.** Belegt (✓) heißt: das Zitat steht wörtlich in der Mail – nicht, dass die Deutung stimmt.
+- Wie gut das echte Modell einordnet und Manipulationen widersteht, misst die Live-Evaluierung (siehe [docs/testplan.md](docs/testplan.md)) – sie wurde **noch nicht ausgeführt**.
+
 ## Fehlerbehebung
+
+Erster Schritt immer: `uv run mailassist check --llm --telegram`.
 
 | Meldung / Symptom | Ursache und Lösung |
 |---|---|
 | `'baryon-mcp' nicht gefunden` | Baryon nicht installiert oder nicht im `PATH`. Alternativ vollen Pfad in `BARYON_COMMAND` setzen. |
-| `Fehler: … connection refused` / Timeout beim Lesen | Bridge läuft nicht: `systemctl --user status protonmail-bridge` bzw. Bridge-App starten. |
+| `baryon-mcp meldet Version …` | Installierte Baryon-Version weicht von der geprüften ab. Richtige Version installieren oder – nach eigener Prüfung – `MAILASSIST_BARYON_VERSION` anpassen. |
+| `Postfach-Zugriff fehlgeschlagen` / Timeout | Bridge läuft nicht: `systemctl --user status protonmail-bridge` bzw. Bridge-App starten. In der Kommandozeile stehen unter „Details“ die Originalmeldungen. |
 | Fehler zu Zertifikat / TLS | Bridge-Zertifikat hat sich geändert: `baryon-mcp setup` erneut ausführen. |
 | Fehler zu Zugangsdaten | Bridge-Passwort geändert: `baryon-mcp setup --reset-credentials`. |
-| `NanoGPT antwortete mit HTTP 401` | API-Schlüssel falsch oder abgelaufen (`.env` prüfen). |
-| `HTTP 402` / `429` | Guthaben aufgebraucht bzw. zu viele Anfragen – im NanoGPT-Konto prüfen. |
+| `NanoGPT antwortete mit HTTP 401/403` | API-Schlüssel falsch oder abgelaufen (`.env` prüfen). |
+| `HTTP 402` / `429` | Guthaben aufgebraucht bzw. zu viele Anfragen. Bei 429 und 5xx versucht mailassist es automatisch bis zu zweimal erneut. |
+| `Modellantwort wurde abgeschnitten` | `MAILASSIST_MAX_TOKENS` erhöhen oder die Anweisung kürzen. |
+| `Speichern fehlgeschlagen … könnte trotzdem angelegt worden sein` | Im Entwürfe-Ordner nachsehen, bevor du erneut speicherst. |
+| `Zu dieser Mail wurde bereits ein Entwurf gespeichert` | Absichtlich: erst nach Bestätigung wird ein weiterer gespeichert. |
+| `Dieser Entwurf ist veraltet` | Du hast einen Knopf unter einem älteren Entwurf gedrückt – den aktuellen verwenden. |
 | `Konfigurationsfehler: …` | Pflichtwert in `.env` fehlt, Meldung nennt ihn. |
 | Bot reagiert nicht | Eigene ID nicht in `TELEGRAM_ALLOWED_USER_IDS` (Log zeigt `ignored update from user id=…`), oder Dienst gestoppt: `journalctl --user -u mailassist-bot`. |
-| Keine Treffer bei `/suche` | Suche läuft im Ordner `All Mail`. Heißt er bei dir anders, `MAILASSIST_SEARCH_FOLDER` setzen. |
+| Keine Treffer bei `/suche` / unvollständiger Verlauf | Suche und Verlauf nutzen den Ordner `All Mail`. Heißt er bei dir anders, `MAILASSIST_SEARCH_FOLDER` setzen. |
+| Wissensbasis wird nicht benutzt | `mailassist check` zeigt geladene und übersprungene Dateien samt Grund. |
 | Entwurf erscheint nicht in der Handy-App | Bridge synchronisiert Entwürfe zu Proton; kurz warten bzw. App aktualisieren. |
 
-## Entwicklung
+## Entwicklung und Tests
 
 ```bash
-uv run pytest        # alle Tests, ohne Netz und ohne echtes Postfach
+uv run pytest                                  # alle Tests, offline, ohne echtes Postfach
+MAILASSIST_LIVE=1 uv run pytest -m live -s     # optional: Live-Evaluierung mit synthetischen Mails
 ```
 
-Die Tests nutzen Mock-Daten: `tests/fake_baryon.py` ist ein echter MCP-Server mit Testmails, der zusätzlich die Fallen `send_email` und `save_draft` anbietet – die Tests prüfen, dass mailassist sie nie aufruft. NanoGPT wird per `httpx.MockTransport` simuliert.
+Testdaten sind ausschließlich synthetisch (`tests/corpus/mails.toml`, `examples/knowledge/`). `tests/fake_baryon.py` ist ein echter MCP-Server mit Ordnern wie bei Bridge und mit Fallen-Werkzeugen (`send_email`, `save_draft`), die nie aufgerufen werden dürfen. Zuordnung aller Testfälle: [docs/testplan.md](docs/testplan.md).
 
 ### Stand der Prüfung
 
-- **Automatisch getestet:** MCP-Kommunikation, Werkzeug-Allowlist, Prompt-Aufbau inkl. Schutz gegen eingeschleuste Tags, NanoGPT-Anfrageformat, Schlüssel-Schwärzung in Logs, CLI- und Bot-Ablauf (Auswählen → Entwurf → Ändern → Speichern/Verwerfen), Zugriffssperre für fremde Telegram-Nutzer.
-- **Noch nicht getestet** (braucht Bridge, Schlüssel und Token): echte Verbindung zu Proton Mail Bridge, echte Antwort von NanoGPT, echter Telegram-Betrieb, Server-Installation. Ersten Live-Test bitte mit einer unkritischen Testmail machen.
+- **Automatisch getestet (offline):** Werkzeug-Allowlist und MCP-Protokoll, vollständiger Verlauf über Ordner hinweg, validierte Baryon-Antworten, Freigabe-Bindung (veraltete Knöpfe, Doppeltipp, Hash, fremde Nutzer), Duplikat-Erkennung, Prüfprotokoll ohne Inhalte, Analyse mit Belegprüfung, Wissensbasis mit Freigabe/Ablauf, Ausgabeprüfung, 21 synthetische Mails inkl. 7 Manipulationsversuchen, Modellfehler (Timeout, 429/5xx, abgeschnitten, kein JSON), Schwärzung in Logs, CLI- und Bot-Abläufe.
+- **Noch nicht getestet** (braucht Bridge, Schlüssel und Token): echte Verbindung zu Proton Mail Bridge, echte Antworten von NanoGPT (inkl. Live-Evaluierung), echter Telegram-Betrieb, Server-Installation. Ersten Live-Test bitte mit einer unkritischen Testmail machen.
