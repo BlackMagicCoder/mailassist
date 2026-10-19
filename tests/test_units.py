@@ -10,6 +10,7 @@ from telegram import Chat, Message, Update, User
 from telegram.ext import ApplicationHandlerStop
 
 from mailassist import telegram_bot as bot
+from mailassist.approval import ApprovalError
 from mailassist.config import ConfigError, Settings
 from mailassist.core import Assistant, DraftProposal
 from mailassist.llm import LLMError, NanoGPTClient
@@ -217,10 +218,17 @@ def test_build_application_installs_gate_first():
     assert app.handlers[-1][0].callback is bot._gate
 
 
-def fake_update(text=None, data=None):
+def fake_update(text=None, data=None, user_id=111):
     message = SimpleNamespace(text=text, reply_text=AsyncMock())
     query = SimpleNamespace(data=data, answer=AsyncMock(), message=message, edit_message_reply_markup=AsyncMock())
-    return SimpleNamespace(effective_message=message, callback_query=query), message
+    user = SimpleNamespace(id=user_id)
+    return SimpleNamespace(effective_message=message, callback_query=query, effective_user=user), message
+
+
+def button_data(message) -> dict[str, str]:
+    """Callback data of the inline buttons under the last message the bot sent, by label."""
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    return {b.text: b.callback_data for row in markup.inline_keyboard for b in row}
 
 
 async def test_bot_flow_select_instruct_edit_save():
@@ -241,25 +249,29 @@ async def test_bot_flow_select_instruct_edit_save():
     shown = message.reply_text.await_args.args[0]
     assert "Hallo Anna" in shown and "1 offene [[TODO]]" in shown
     assert not any(c[0] == "save_reply_draft" for c in fake.calls)
+    first = button_data(message)
 
-    update, message = fake_update(data="edit")
+    update, message = fake_update(data=first["Ändern"])
     await bot.on_button(update, context)
     update, message = fake_update(text="kürzer bitte")
     await bot.on_text(update, context)
     assert "kürzer bitte" in llm.complete.await_args.args[1]
+    second = button_data(message)
 
-    update, message = fake_update(data="save")
+    update, message = fake_update(data=second["Speichern"])
     await bot.on_button(update, context)
     assert fake.calls[-1][0] == "save_reply_draft"
     assert "selbst senden" in message.reply_text.await_args.args[0]
-    assert context.user_data["proposal"] is None
 
 
 async def test_bot_drop_saves_nothing():
     fake = FakeMail()
     assistant, _ = make_assistant(fake)
-    proposal = DraftProposal(REF, "s", "a", "body", "m")
-    context = SimpleNamespace(bot_data={"assistant": assistant}, user_data={"proposal": proposal})
-    update, _ = fake_update(data="drop")
+    proposal = await assistant.propose(REF, "x", owner="telegram:111")
+    fake.calls.clear()
+    context = SimpleNamespace(bot_data={"assistant": assistant}, user_data={})
+    update, _ = fake_update(data=f"drop:{proposal.id}")
     await bot.on_button(update, context)
-    assert fake.calls == [] and context.user_data["proposal"] is None
+    assert fake.calls == []
+    with pytest.raises(ApprovalError):
+        await assistant.save(proposal, owner="telegram:111")

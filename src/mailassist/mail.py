@@ -13,11 +13,13 @@ import logging
 import os
 import re
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
+
+from .errors import AssistantError
+from .models import Email, EmailSummary, MessageRef, SavedDraft, ThreadMessage
 
 log = logging.getLogger(__name__)
 
@@ -29,55 +31,8 @@ _PASSTHROUGH_PREFIXES = ("PROTON_BRIDGE_", "BARYON_")
 _PASSTHROUGH_VARS = ("XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "APPDATA", "LOCALAPPDATA")
 
 
-class MailError(Exception):
+class MailError(AssistantError):
     pass
-
-
-@dataclass(frozen=True)
-class MessageRef:
-    folder: str
-    uid: int
-    uidvalidity: int
-
-    def as_args(self) -> dict[str, Any]:
-        return {"folder": self.folder, "uid": self.uid, "uidvalidity": self.uidvalidity}
-
-
-@dataclass(frozen=True)
-class EmailSummary:
-    ref: MessageRef
-    subject: str
-    sender: str
-    date: str
-
-
-@dataclass(frozen=True)
-class Email:
-    ref: MessageRef
-    subject: str
-    sender: str
-    to: list[str]
-    date: str
-    body: str
-    truncated: bool = False
-
-
-@dataclass(frozen=True)
-class ThreadMessage:
-    uid: int
-    subject: str
-    sender: str
-    date: str
-    body: str
-    truncated: bool = False
-
-
-@dataclass(frozen=True)
-class SavedDraft:
-    subject: str
-    sender: str
-    to: list[str]
-    cc: list[str] = field(default_factory=list)
 
 
 class MailBackend(Protocol):
@@ -148,14 +103,13 @@ class BaryonMail:
         result = await self._session.call_tool(tool, args)
         texts = [c.text for c in (getattr(result, "content", None) or []) if getattr(c, "type", "") == "text"]
         if getattr(result, "is_error", False):
-            # Baryon error texts describe the failure, not mail content.
-            raise MailError(f"{tool}: {' '.join(texts)[:500]}")
+            raise MailError(f"Postfach-Zugriff fehlgeschlagen ({tool}).", detail=" ".join(texts)[:500])
         data = getattr(result, "structured_content", None)
         if data is None:
             try:
                 data = json.loads("".join(texts))
             except ValueError:
-                raise MailError(f"{tool}: unerwartetes Antwortformat") from None
+                raise MailError(f"Unerwartetes Antwortformat von Baryon ({tool}).") from None
         log.info("baryon %s ok", tool)
         return data
 

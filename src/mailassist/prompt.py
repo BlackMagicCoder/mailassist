@@ -4,11 +4,12 @@ owner's instruction may steer the reply."""
 from __future__ import annotations
 
 import re
+import unicodedata
 
-from .mail import Email, ThreadMessage
+from .models import Email, ThreadMessage
+from .prompt_utils import TODO_PATTERN, addresses, count_todos  # noqa: F401  (re-exported)
 
 MAX_CONTEXT_CHARS = 40_000
-TODO_PATTERN = re.compile(r"\[\[TODO:[^\]]*\]\]")
 
 SYSTEM_PROMPT = """\
 You draft email replies for the owner of a mailbox. The owner reviews and sends every draft personally.
@@ -29,7 +30,9 @@ _TAGS = r"selected_email|thread|message|owner_instruction|change_request|previou
 
 
 def _neutralize(text: str) -> str:
-    """Stop mail content from closing or opening our delimiter tags."""
+    """Stop mail content from closing or opening our delimiter tags. NFKC first, so
+    look-alike brackets (fullwidth, small form) cannot imitate a tag."""
+    text = unicodedata.normalize("NFKC", text)
     return re.sub(rf"<(/?)({_TAGS})\b", r"‹\1\2", text, flags=re.IGNORECASE)
 
 
@@ -42,8 +45,8 @@ def system_prompt(signature: str | None) -> str:
 
 
 def _is_own(sender: str, own_addresses: frozenset[str]) -> bool:
-    lowered = sender.lower()
-    return any(address in lowered for address in own_addresses)
+    # Exact address match: a display name like "me@example.net" <attacker@…> is not the owner.
+    return bool(addresses(sender) & own_addresses)
 
 
 def build_user_prompt(
@@ -98,7 +101,3 @@ def build_user_prompt(
             + "\n</change_request>\nRevise the previous draft according to the change request."
         )
     return "\n\n".join(parts)
-
-
-def count_todos(text: str) -> int:
-    return len(TODO_PATTERN.findall(text))

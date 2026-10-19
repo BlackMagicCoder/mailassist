@@ -1,6 +1,7 @@
 """Workflow shared by the CLI and the Telegram bot: search, propose a draft, save it.
 
-Nothing here can send mail. Saving a draft is always a separate, explicit step.
+Nothing here can send mail. Saving a draft is a separate step that passes the
+approval gate: registered proposal, same owner, matching content hash, once.
 """
 
 from __future__ import annotations
@@ -8,40 +9,38 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
 
+from .approval import ApprovalGate
 from .config import Settings
 from .llm import NanoGPTClient
-from .mail import BaryonMail, EmailSummary, MailBackend, MessageRef, SavedDraft
+from .mail import BaryonMail, MailBackend, MailError
+from .models import DraftProposal, EmailSummary, MessageRef, SavedDraft
 from .prompt import build_user_prompt, count_todos, system_prompt
+
+__all__ = ["Assistant", "DraftProposal", "MailSession"]
 
 log = logging.getLogger(__name__)
 
 MailSession = Callable[[], AbstractAsyncContextManager[MailBackend]]
 
-
-@dataclass(frozen=True)
-class DraftProposal:
-    ref: MessageRef
-    subject: str
-    recipient: str
-    body: str
-    model: str
-
-    @property
-    def reply_subject(self) -> str:
-        return self.subject if self.subject.lower().startswith("re:") else f"Re: {self.subject}"
-
-    @property
-    def todo_count(self) -> int:
-        return count_todos(self.body)
+SAVE_FAILED = (
+    "Speichern fehlgeschlagen. Der Entwurf könnte trotzdem angelegt worden sein – "
+    "bitte zuerst im Entwürfe-Ordner von Proton Mail nachsehen, bevor du erneut speicherst."
+)
 
 
 class Assistant:
-    def __init__(self, settings: Settings, mail_session: MailSession, llm: NanoGPTClient):
+    def __init__(
+        self,
+        settings: Settings,
+        mail_session: MailSession,
+        llm: NanoGPTClient,
+        gate: ApprovalGate | None = None,
+    ):
         self._settings = settings
         self._mail_session = mail_session
         self._llm = llm
+        self._gate = gate or ApprovalGate()
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Assistant:
@@ -67,6 +66,7 @@ class Assistant:
         instruction: str | None = None,
         previous: DraftProposal | None = None,
         change_request: str | None = None,
+        owner: str = "cli",
     ) -> DraftProposal:
         async with self._mail_session() as mail:
             email = await mail.get_email(ref)
@@ -80,11 +80,39 @@ class Assistant:
             change_request=change_request,
         )
         completion = await self._llm.complete(system_prompt(self._settings.signature), user)
-        log.info("proposal uid=%s thread=%d todos=%d", ref.uid, len(thread), count_todos(completion.text))
-        return DraftProposal(
-            ref=ref, subject=email.subject, recipient=email.sender, body=completion.text, model=completion.model
+        proposal = DraftProposal(
+            ref=ref,
+            subject=email.subject,
+            recipient=email.sender,
+            body=completion.text,
+            model=completion.model,
+            message_id=email.message_id,
         )
+        self._gate.register(proposal, owner)
+        log.info("proposal id=%s uid=%s thread=%d todos=%d", proposal.id, ref.uid, len(thread), count_todos(proposal.body))
+        return proposal
 
-    async def save(self, proposal: DraftProposal) -> SavedDraft:
-        async with self._mail_session() as mail:
-            return await mail.save_reply_draft(proposal.ref, proposal.body)
+    def current_proposal(self, proposal_id: str, owner: str) -> DraftProposal:
+        return self._gate.current(proposal_id, owner)
+
+    def discard(self, proposal_id: str, owner: str) -> None:
+        self._gate.discard(proposal_id, owner)
+        log.info("proposal id=%s discarded", proposal_id)
+
+    async def save(self, proposal: DraftProposal, owner: str = "cli") -> SavedDraft:
+        return await self.save_approved(proposal.id, proposal.content_hash, owner)
+
+    async def save_approved(self, proposal_id: str, content_hash: str, owner: str) -> SavedDraft:
+        proposal = self._gate.begin(proposal_id, content_hash, owner)
+        try:
+            async with self._mail_session() as mail:
+                saved = await mail.save_reply_draft(proposal.ref, proposal.body)
+        except MailError as exc:
+            self._gate.finish(proposal_id, ok=False)
+            raise MailError(SAVE_FAILED, detail=exc.detail or str(exc)) from None
+        except BaseException:
+            self._gate.finish(proposal_id, ok=False)
+            raise
+        self._gate.finish(proposal_id, ok=True)
+        log.info("proposal id=%s saved", proposal_id)
+        return saved

@@ -13,9 +13,9 @@ from dotenv import load_dotenv
 
 from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
-from .llm import LLMError
+from .errors import AssistantError
 from .logs import setup_logging
-from .mail import EmailSummary, MailError, MessageRef
+from .models import EmailSummary, MessageRef
 
 PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an NanoGPT (und Anthropic) übertragen."
 RESULTS_FILE = "letzte_liste.json"
@@ -128,8 +128,10 @@ def main(argv: list[str] | None = None) -> None:
         return
     try:
         asyncio.run(_run(args, settings))
-    except (MailError, LLMError) as exc:
-        raise SystemExit(f"Fehler: {exc}")
+    except AssistantError as exc:
+        # The local terminal may show `detail` (server/Baryon text); Telegram never does.
+        details = f"\nDetails: {exc.detail}" if exc.detail else ""
+        raise SystemExit(f"Fehler: {exc}{details}")
     except FileNotFoundError:
         raise SystemExit(f"'{settings.baryon_command}' nicht gefunden. Ist Baryon MCP installiert und im PATH?")
     except KeyboardInterrupt:

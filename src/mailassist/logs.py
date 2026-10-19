@@ -22,9 +22,25 @@ class SecretRedactor(logging.Filter):
         return True
 
 
+class RedactingFormatter(logging.Formatter):
+    """Redacts secrets from the fully formatted record, including tracebacks
+    (a filter only sees the message, not the exception text appended later)."""
+
+    def __init__(self, secrets: Iterable[str], fmt: str | None = None):
+        super().__init__(fmt)
+        self._secrets = [s for s in secrets if s]
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        for secret in self._secrets:
+            text = text.replace(secret, "***")
+        return text
+
+
 def setup_logging(secrets: Iterable[str], level: int = logging.INFO) -> None:
+    secrets = list(secrets)
     handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.setFormatter(RedactingFormatter(secrets, "%(asctime)s %(levelname)s %(name)s: %(message)s"))
     handler.addFilter(SecretRedactor(secrets))
     logging.basicConfig(level=level, handlers=[handler], force=True)
     # httpx logs every request URL at INFO; Telegram URLs contain the bot token.

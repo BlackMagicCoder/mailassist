@@ -10,11 +10,22 @@ from dataclasses import dataclass
 
 import httpx
 
+from .errors import AssistantError
+
 log = logging.getLogger(__name__)
 
 
-class LLMError(Exception):
+class LLMError(AssistantError):
     pass
+
+
+_STATUS_HINTS = {
+    401: "API-Schlüssel prüfen",
+    403: "API-Schlüssel prüfen",
+    402: "Guthaben bei NanoGPT prüfen",
+    404: "Modell-ID prüfen",
+    429: "zu viele Anfragen, später erneut versuchen",
+}
 
 
 @dataclass(frozen=True)
@@ -54,11 +65,22 @@ class NanoGPTClient:
         except httpx.HTTPError as exc:
             raise LLMError(f"NanoGPT nicht erreichbar: {type(exc).__name__}") from None
         if response.status_code != 200:
-            raise LLMError(f"NanoGPT antwortete mit HTTP {response.status_code}: {_error_message(response)}")
-        data = response.json()
-        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+            code = response.status_code
+            hint = _STATUS_HINTS.get(code, "Störung bei NanoGPT" if code >= 500 else "Anfrage abgelehnt")
+            raise LLMError(f"NanoGPT antwortete mit HTTP {code} ({hint}).", detail=_error_message(response))
+        try:
+            data = response.json()
+            blocks = data.get("content") or []
+            text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        except (ValueError, AttributeError):
+            raise LLMError("NanoGPT lieferte eine unlesbare Antwort.") from None
+        if data.get("stop_reason") == "max_tokens":
+            raise LLMError(
+                "Die Modellantwort wurde abgeschnitten (Längenlimit erreicht). "
+                "MAILASSIST_MAX_TOKENS erhöhen oder die Anweisung kürzen."
+            )
         if not text:
-            raise LLMError("NanoGPT lieferte keinen Text")
+            raise LLMError("NanoGPT lieferte keinen Text.")
         model = data.get("model") or self._model
         log.info("llm ok model=%s in_chars=%d out_chars=%d", model, len(system) + len(user), len(text))
         return Completion(text=text, model=model)
