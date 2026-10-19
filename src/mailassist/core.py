@@ -11,12 +11,15 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 
 from .approval import ApprovalGate
+from .checks import date_variants, unsupported_claims
 from .config import Settings
-from .llm import NanoGPTClient
+from .knowledge import facts_block, load_knowledge, select_facts
+from .llm import LLMAdapter, NanoGPTClient
 from .mail import BaryonMail, MailBackend, MailError
 from .models import DraftProposal, EmailSummary, MessageRef, SavedDraft
 from .prompt import build_user_prompt, count_todos, system_prompt
-from .triage import Triage, analyse as analyse_mail
+from .triage import Triage, mail_sources
+from .triage import analyse as analyse_mail
 
 __all__ = ["Assistant", "DraftProposal", "MailSession"]
 
@@ -35,7 +38,7 @@ class Assistant:
         self,
         settings: Settings,
         mail_session: MailSession,
-        llm: NanoGPTClient,
+        llm: LLMAdapter,
         gate: ApprovalGate | None = None,
     ):
         self._settings = settings
@@ -72,6 +75,11 @@ class Assistant:
         async with self._mail_session() as mail:
             email = await mail.get_email(ref)
             thread = await mail.get_thread(ref)
+        # Reloaded per draft so edits and expiry dates apply without a restart.
+        entries, skipped = load_knowledge(self._settings.knowledge_dir)
+        for reason in skipped:
+            log.warning("knowledge skipped: %s", reason)
+        facts = facts_block(select_facts(entries, f"{email.subject}\n{email.body}\n{instruction or ''}")) or None
         user = build_user_prompt(
             email,
             thread,
@@ -79,8 +87,12 @@ class Assistant:
             own_addresses=self._settings.own_addresses,
             previous_draft=previous.body if previous else None,
             change_request=change_request,
+            company_facts=facts,
         )
         completion = await self._llm.complete(system_prompt(self._settings.signature), user)
+        sources = mail_sources(email, thread) + [
+            date_variants(email.date), instruction or "", change_request or "", facts or "", self._settings.signature or "",
+        ]
         proposal = DraftProposal(
             ref=ref,
             subject=email.subject,
@@ -88,9 +100,13 @@ class Assistant:
             body=completion.text,
             model=completion.model,
             message_id=email.message_id,
+            warnings=tuple(unsupported_claims(completion.text, sources)),
         )
         self._gate.register(proposal, owner)
-        log.info("proposal id=%s uid=%s thread=%d todos=%d", proposal.id, ref.uid, len(thread), count_todos(proposal.body))
+        log.info(
+            "proposal id=%s uid=%s thread=%d facts=%d todos=%d warnings=%d",
+            proposal.id, ref.uid, len(thread), len(entries), count_todos(proposal.body), len(proposal.warnings),
+        )
         return proposal
 
     async def analyse(self, ref: MessageRef) -> tuple[Triage, str]:

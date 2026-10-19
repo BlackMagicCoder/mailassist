@@ -56,6 +56,8 @@ def _print_proposal(p: DraftProposal) -> None:
     print("\n--- Ende des Entwurfs ---")
     if p.todo_count:
         print(f"Achtung: {p.todo_count} offene [[TODO]]-Stelle(n) vor dem Versand ergänzen.")
+    for warning in p.warnings:
+        print(f"Achtung: {warning}")
 
 
 async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None) -> None:

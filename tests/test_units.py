@@ -24,7 +24,7 @@ REF = MessageRef("All Mail", 43, 7)
 
 def settings(**overrides) -> Settings:
     base = dict(nanogpt_api_key=KEY, telegram_token="123:TOKEN", telegram_allowed_user_ids=frozenset({111}),
-                own_addresses=frozenset({"me@example.net"}))
+                own_addresses=frozenset({"me@example.net"}), knowledge_dir="tests/_no_knowledge")
     return Settings(**{**base, **overrides})
 
 

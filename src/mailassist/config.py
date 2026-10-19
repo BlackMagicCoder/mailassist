@@ -33,6 +33,7 @@ class Settings:
     own_addresses: frozenset[str] = frozenset()
     signature: str | None = None
     data_dir: str = "data"
+    knowledge_dir: str = "knowledge"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -58,6 +59,7 @@ class Settings:
             own_addresses=frozenset(a.lower() for a in _split(env.get("MAILASSIST_OWN_ADDRESSES"))),
             signature=env.get("MAILASSIST_SIGNATURE", "").replace("\\n", "\n").strip() or None,
             data_dir=env.get("MAILASSIST_DATA_DIR", "data"),
+            knowledge_dir=env.get("MAILASSIST_KNOWLEDGE_DIR", "knowledge"),
         )
 
     def secrets(self) -> list[str]:
