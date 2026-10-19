@@ -69,7 +69,12 @@ def build_user_prompt(
     # Earlier messages, newest first until the budget is used up, then restored to chronological order.
     earlier: list[str] = []
     for message in reversed(thread):
-        if message.uid == email.ref.uid:
+        # UIDs are per folder and the thread may come from another folder ("All Mail"),
+        # so the selected message is recognised by its Message-ID when available.
+        if email.message_id:
+            if message.message_id == email.message_id:
+                continue
+        elif message.uid == email.ref.uid:
             continue
         author = "owner" if _is_own(message.sender, own_addresses) else "other"
         block = (

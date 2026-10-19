@@ -2,7 +2,7 @@
 
 Only the tools in ALLOWED_TOOLS can be called. Baryon itself has no send tool;
 this allowlist additionally keeps draft replacement (save_draft) and attachment
-tools out of reach.
+tools out of reach. Every Baryon response is validated before use.
 """
 
 from __future__ import annotations
@@ -13,13 +13,19 @@ import logging
 import os
 import re
 from contextlib import AsyncExitStack
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .errors import AssistantError
 from .models import Email, EmailSummary, MessageRef, SavedDraft, ThreadMessage
+
+__all__ = [
+    "ALLOWED_TOOLS", "BaryonMail", "Email", "EmailSummary", "MailBackend", "MailError",
+    "MessageRef", "SavedDraft", "ThreadMessage", "baryon_environment", "html_to_text",
+]
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +47,75 @@ class MailBackend(Protocol):
     async def get_thread(self, ref: MessageRef) -> list[ThreadMessage]: ...
     async def save_reply_draft(self, ref: MessageRef, body: str) -> SavedDraft: ...
 
+
+# --- Baryon wire format (only the fields we use; unknown fields are ignored) ----------
+
+class _Wire(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+
+class _Summary(_Wire):
+    uid: int
+    subject: str = ""
+    from_: list[str] = Field(default_factory=list, alias="from")
+    date: str = ""
+    message_id: str = ""
+
+
+class _SearchPage(_Wire):
+    folder: str
+    uidvalidity: int
+    emails: list[_Summary] = Field(default_factory=list)
+
+
+class _EmailOut(_Wire):
+    subject: str = ""
+    from_: list[str] = Field(default_factory=list, alias="from")
+    reply_to: list[str] = Field(default_factory=list)
+    to: list[str] = Field(default_factory=list)
+    date: str = ""
+    message_id: str = ""
+    plain_body: str = ""
+    html_body: str = ""
+    text_truncated: bool = False
+    html_truncated: bool = False
+
+
+class _ThreadMsg(_Wire):
+    uid: int
+    subject: str = ""
+    from_: list[str] = Field(default_factory=list, alias="from")
+    date: str = ""
+    message_id: str = ""
+    body: str = ""
+    body_truncated: bool = False
+
+
+class _Thread(_Wire):
+    messages: list[_ThreadMsg] = Field(default_factory=list)
+
+
+class _ReplyDraft(_Wire):
+    uid: int
+    subject: str = ""
+    from_: str = Field("", alias="from")
+    to: list[str] = Field(default_factory=list)
+    cc: list[str] = Field(default_factory=list)
+
+
+W = TypeVar("W", bound=_Wire)
+
+
+def _parse(model: type[W], data: Any, tool: str) -> W:
+    try:
+        return model.model_validate(data)
+    except ValidationError as exc:
+        # Field locations only; the offending values could be mail content.
+        locations = "; ".join(".".join(map(str, e["loc"])) + f": {e['type']}" for e in exc.errors())
+        raise MailError(f"Unerwartetes Antwortformat von Baryon ({tool}).", detail=locations[:500]) from None
+
+
+# --- helpers -------------------------------------------------------------------------
 
 def html_to_text(markup: str) -> str:
     markup = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", markup)
@@ -64,12 +139,23 @@ def baryon_environment() -> dict[str, str]:
 
 
 class BaryonMail:
-    """MailBackend backed by one baryon-mcp process for the lifetime of `async with`."""
+    """MailBackend backed by one baryon-mcp process for the lifetime of `async with`.
 
-    def __init__(self, command: str, args: list[str] | None = None, env: dict[str, str] | None = None):
+    `thread_folder` is where conversations are gathered (Proton: "All Mail"), so a
+    thread includes the owner's own replies stored in Sent.
+    """
+
+    def __init__(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        thread_folder: str | None = None,
+    ):
         self._params = StdioServerParameters(
             command=command, args=args or [], env=env if env is not None else baryon_environment()
         )
+        self._thread_folder = thread_folder
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
 
@@ -95,7 +181,7 @@ class BaryonMail:
             await self._stack.aclose()
         self._stack = self._session = None
 
-    async def _call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def _call(self, tool: str, args: dict[str, Any]) -> Any:
         if tool not in ALLOWED_TOOLS:
             raise PermissionError(f"Werkzeug {tool!r} ist nicht freigegeben")
         if self._session is None:
@@ -117,51 +203,51 @@ class BaryonMail:
         args: dict[str, Any] = {"folder": folder, "limit": limit}
         if query:
             args["query"] = query
-        data = await self._call("search_emails", args)
-        uidvalidity = data["uidvalidity"]
+        page = _parse(_SearchPage, await self._call("search_emails", args), "search_emails")
         return [
             EmailSummary(
-                ref=MessageRef(data["folder"], e["uid"], uidvalidity),
-                subject=e.get("subject", ""),
-                sender=_first(e.get("from")),
-                date=e.get("date", ""),
+                ref=MessageRef(page.folder, e.uid, page.uidvalidity),
+                subject=e.subject,
+                sender=_first(e.from_),
+                date=e.date,
+                message_id=e.message_id,
             )
-            for e in data.get("emails", [])
+            for e in page.emails
         ]
 
     async def get_email(self, ref: MessageRef) -> Email:
-        d = await self._call("get_email", ref.as_args())
-        body = d.get("plain_body") or html_to_text(d.get("html_body", ""))
+        d = _parse(_EmailOut, await self._call("get_email", ref.as_args()), "get_email")
         return Email(
             ref=ref,
-            subject=d.get("subject", ""),
-            sender=_first(d.get("reply_to")) or _first(d.get("from")),
-            to=list(d.get("to") or []),
-            date=d.get("date", ""),
-            body=body,
-            truncated=bool(d.get("text_truncated") or d.get("html_truncated")),
+            subject=d.subject,
+            sender=_first(d.reply_to) or _first(d.from_),
+            to=list(d.to),
+            date=d.date,
+            body=d.plain_body or html_to_text(d.html_body),
+            truncated=d.text_truncated or d.html_truncated,
+            message_id=d.message_id,
         )
 
     async def get_thread(self, ref: MessageRef) -> list[ThreadMessage]:
-        d = await self._call("get_thread", {**ref.as_args(), "include_bodies": True})
+        args: dict[str, Any] = {**ref.as_args(), "include_bodies": True}
+        if self._thread_folder:
+            args["search_folder"] = self._thread_folder
+        thread = _parse(_Thread, await self._call("get_thread", args), "get_thread")
         return [
             ThreadMessage(
-                uid=m["uid"],
-                subject=m.get("subject", ""),
-                sender=_first(m.get("from")),
-                date=m.get("date", ""),
-                body=m.get("body", ""),
-                truncated=bool(m.get("body_truncated")),
+                uid=m.uid,
+                subject=m.subject,
+                sender=_first(m.from_),
+                date=m.date,
+                body=m.body,
+                truncated=m.body_truncated,
+                message_id=m.message_id,
             )
-            for m in d.get("messages", [])
+            for m in thread.messages
         ]
 
     async def save_reply_draft(self, ref: MessageRef, body: str) -> SavedDraft:
-        d = await self._call("save_reply_draft", {**ref.as_args(), "text_body": body})
-        log.info("draft saved uid=%s chars=%d", d.get("uid"), len(body))
-        return SavedDraft(
-            subject=d.get("subject", ""),
-            sender=d.get("from", ""),
-            to=list(d.get("to") or []),
-            cc=list(d.get("cc") or []),
-        )
+        args = {**ref.as_args(), "text_body": body}
+        d = _parse(_ReplyDraft, await self._call("save_reply_draft", args), "save_reply_draft")
+        log.info("draft saved uid=%s chars=%d", d.uid, len(body))
+        return SavedDraft(subject=d.subject, sender=d.from_, to=list(d.to), cc=list(d.cc))

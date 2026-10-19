@@ -50,7 +50,7 @@ class Assistant:
             base_url=settings.nanogpt_base_url,
             max_tokens=settings.max_tokens,
         )
-        return cls(settings, lambda: BaryonMail(settings.baryon_command), llm)
+        return cls(settings, lambda: BaryonMail(settings.baryon_command, thread_folder=settings.search_folder), llm)
 
     async def recent(self, limit: int = 10) -> list[EmailSummary]:
         async with self._mail_session() as mail:
