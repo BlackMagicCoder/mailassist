@@ -103,7 +103,7 @@ async def test_naive_mock_obeys_injection_and_checks_catch_it(tmp_path):
 
 
 def test_demo_settings_never_touch_real_configuration(tmp_path):
-    real = {"NANOGPT_API_KEY": "", "MAILASSIST_DATA_DIR": "data", "MAILASSIST_KNOWLEDGE_DIR": "knowledge"}
+    real = {"BEDROCK_API_KEY": "", "MAILASSIST_DATA_DIR": "data", "MAILASSIST_KNOWLEDGE_DIR": "knowledge"}
     settings = Settings.for_demo(real)
     assert settings.connector == "demo" and settings.model == "mock"
     assert settings.data_dir.replace("\\", "/") == "data/demo"
@@ -140,14 +140,14 @@ async def test_health_check_labels_demo_honestly(tmp_path):
     assistant = Assistant.from_settings(settings)
     text = format_checks(await run_checks(settings, assistant.mail_session, assistant.llm))
     assert "Postfach (Demo, synthetisch)" in text and "Modell (Mock, lokal)" in text
-    assert "Baryon" not in text and "NanoGPT" not in text
+    assert "Baryon" not in text and "Bedrock" not in text
 
 
 # --- CLI end to end ---------------------------------------------------------------------
 
 def test_cli_demo_end_to_end(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("NANOGPT_API_KEY", raising=False)
+    monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
     monkeypatch.setattr("builtins.input", lambda prompt="": "j")
     cli.main(["--demo", "neu", "-n", "5"])
     cli.main(["--demo", "--datenfluss", "antworte", "1"])
@@ -165,19 +165,21 @@ def test_mock_settings_need_no_key_and_keep_real_mailbox():
     from mailassist.telegram_bot import help_text
 
     env = {"MAILASSIST_CONNECTOR": "imap", "IMAP_USER": "a@t-online.example", "IMAP_PASSWORD": "pw"}
-    with pytest.raises(Exception, match="NANOGPT_API_KEY"):
+    with pytest.raises(Exception, match="BEDROCK_API_KEY"):
         Settings.from_env(env)
     settings = Settings.from_env(env, require_key=False).with_mock()
     assert settings.use_mock and settings.connector == "imap" and settings.model == "mock"
     assistant = Assistant.from_settings(settings)
     assert isinstance(assistant.llm, MockModel) and not assistant.llm.naive
-    assert "NanoGPT" not in help_text(settings) and "MOCK" in help_text(settings)
-    real = Settings.from_env({"NANOGPT_API_KEY": "k"})
-    assert "NanoGPT" in help_text(real)
+    assert "Bedrock" not in help_text(settings) and "MOCK" in help_text(settings)
+    real = Settings.from_env({"BEDROCK_API_KEY": "k"})
+    assert "Bedrock" in help_text(real)
 
 
 def test_cli_mock_flag_rules(monkeypatch, capsys):
-    monkeypatch.delenv("NANOGPT_API_KEY", raising=False)
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)  # a developer's real .env must not supply the key
+    monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
+    monkeypatch.delenv("AWS_BEARER_TOKEN_BEDROCK", raising=False)
     with pytest.raises(SystemExit, match="--mock ist für das echte Postfach"):
         cli.main(["--demo", "--mock", "neu"])
     with pytest.raises(SystemExit, match="nur zusammen mit --demo oder --mock"):

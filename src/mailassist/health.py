@@ -35,13 +35,13 @@ async def run_checks(
     demo = settings.connector == "demo"
     mailbox = MAILBOX_LABELS.get(settings.connector, f"Postfach ({settings.connector})")
     mock = demo or settings.use_mock
-    model_label = "Modell (Mock, lokal)" if mock else "NanoGPT"
+    model_label = "Modell (Mock, lokal)" if mock else "Bedrock"
     if demo:
         config = f"Demo-Modus: kein Schlüssel nötig, Daten unter {settings.data_dir}"
     elif mock:
         config = "Mock-Modus: echtes Postfach, lokales Regel-Modell – kein Schlüssel, nichts geht an ein Sprachmodell"
     else:
-        config = f"Modell {settings.model}, NanoGPT-Schlüssel gesetzt"
+        config = f"Modell {settings.model}, Region {settings.bedrock_region}, Bedrock-Schlüssel gesetzt"
     results = [Check("Konfiguration", True, config)]
 
     entries, skipped = load_knowledge(settings.knowledge_dir)
@@ -72,7 +72,8 @@ async def run_checks(
             completion = await llm.complete("Answer with the single word OK.", "Ping")
             results.append(Check(model_label, True, f"antwortet, Modell {completion.model}"))
         except AssistantError as exc:
-            results.append(Check(model_label, False, str(exc)))
+            # "Ping" carries no mail content, so the provider's reason (e.g. missing AWS use-case form) may be shown
+            results.append(Check(model_label, False, f"{exc} ({exc.detail})" if exc.detail else str(exc)))
     else:
         skipped = "lokal, keine Prüfung nötig" if mock else "nicht geprüft (mit --llm prüfen; kostet einen kleinen Modellaufruf)"
         results.append(Check(model_label, True, skipped))

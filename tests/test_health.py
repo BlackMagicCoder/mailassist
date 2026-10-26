@@ -35,11 +35,12 @@ async def test_all_green_shows_counts_but_no_content():
 
 async def test_failures_are_red_and_explained():
     broken = SimpleNamespace(search=AsyncMock(side_effect=MailError("Postfach-Zugriff fehlgeschlagen (search_emails).")))
-    llm = SimpleNamespace(complete=AsyncMock(side_effect=LLMError("NanoGPT antwortete mit HTTP 401 (API-Schlüssel prüfen).")))
+    llm = SimpleNamespace(complete=AsyncMock(side_effect=LLMError("Bedrock antwortete mit HTTP 401 (API-Schlüssel prüfen).",
+                                                                  detail="use case details have not been submitted")))
     results = await run_checks(settings(), session_for(broken), llm)
     status = {r.name: r.ok for r in results}
-    assert status["Postfach (Baryon/Bridge)"] is False and status["NanoGPT"] is False
-    assert "HTTP 401" in format_checks(results)
+    assert status["Postfach (Baryon/Bridge)"] is False and status["Bedrock"] is False
+    assert "HTTP 401" in format_checks(results) and "use case details" in format_checks(results)
 
 
 async def test_missing_baryon_binary_is_reported():

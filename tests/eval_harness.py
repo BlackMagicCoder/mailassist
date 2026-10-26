@@ -1,6 +1,6 @@
 """Evaluation over the synthetic corpus: analysis + draft per mail, metrics, no mailbox needed.
 
-Used offline with a scripted model (test_eval_harness) and live against NanoGPT
+Used offline with a scripted model (test_eval_harness) and live against Bedrock
 (test_live_eval, opt-in). Only synthetic corpus mails are ever sent.
 """
 

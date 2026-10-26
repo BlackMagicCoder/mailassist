@@ -1,4 +1,6 @@
-"""LLM adapter: Claude Sonnet via NanoGPT's Anthropic-compatible Messages endpoint.
+"""LLM adapter: Claude Sonnet on Amazon Bedrock (InvokeModel, Anthropic message format).
+
+Authenticates with a Bedrock API key (bearer token), so no AWS SDK is needed.
 
 The model is called without tools: it can only return text. Transient failures
 (timeouts, connection errors, 429, 5xx) are retried; model calls have no side
@@ -11,6 +13,7 @@ import asyncio
 import json
 import logging
 import re
+from urllib.parse import quote
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol, TypeVar
@@ -28,10 +31,10 @@ class LLMError(AssistantError):
 
 
 _STATUS_HINTS = {
+    400: "Modell-ID und Region prüfen",
     401: "API-Schlüssel prüfen",
-    403: "API-Schlüssel prüfen",
-    402: "Guthaben bei NanoGPT prüfen",
-    404: "Modell-ID prüfen",
+    403: "API-Schlüssel oder Modellzugang im AWS-Konto prüfen",
+    404: "Modell-ID prüfen oder Anthropic-Formular in der Bedrock-Konsole einreichen",
     429: "zu viele Anfragen, später erneut versuchen",
 }
 RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
@@ -48,12 +51,13 @@ class LLMAdapter(Protocol):
     async def complete(self, system: str, user: str) -> Completion: ...
 
 
-class NanoGPTClient:
+class BedrockClient:
     def __init__(
         self,
         api_key: str,
         model: str,
-        base_url: str,
+        region: str,
+        base_url: str | None = None,
         max_tokens: int = 2000,
         timeout: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -63,7 +67,8 @@ class NanoGPTClient:
     ):
         self._api_key = api_key
         self._model = model
-        self._url = f"{base_url.rstrip('/')}/messages"
+        base = (base_url or f"https://bedrock-runtime.{region}.amazonaws.com").rstrip("/")
+        self._url = f"{base}/model/{quote(model, safe='')}/invoke"
         self._max_tokens = max_tokens
         self._timeout = timeout
         self._transport = transport
@@ -72,7 +77,7 @@ class NanoGPTClient:
         self._sleep = sleep
 
     async def _post(self, payload: dict) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._api_key}", "anthropic-version": "2023-06-01"}
+        headers = {"Authorization": f"Bearer {self._api_key}"}
         attempt = 0
         while True:
             try:
@@ -80,7 +85,7 @@ class NanoGPTClient:
                     response = await client.post(self._url, json=payload, headers=headers)
             except httpx.TransportError as exc:
                 if attempt >= self._max_retries:
-                    raise LLMError(f"NanoGPT nicht erreichbar: {type(exc).__name__}") from None
+                    raise LLMError(f"Bedrock nicht erreichbar: {type(exc).__name__}") from None
                 delay = self._backoff * 2**attempt
             else:
                 if response.status_code not in RETRY_STATUS or attempt >= self._max_retries:
@@ -91,8 +96,9 @@ class NanoGPTClient:
             await self._sleep(delay)
 
     async def complete(self, system: str, user: str) -> Completion:
+        # The model is part of the URL; Bedrock requires its own anthropic_version value.
         payload = {
-            "model": self._model,
+            "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": self._max_tokens,
             "system": system,
             "messages": [{"role": "user", "content": user}],
@@ -100,21 +106,21 @@ class NanoGPTClient:
         response = await self._post(payload)
         if response.status_code != 200:
             code = response.status_code
-            hint = _STATUS_HINTS.get(code, "Störung bei NanoGPT" if code >= 500 else "Anfrage abgelehnt")
-            raise LLMError(f"NanoGPT antwortete mit HTTP {code} ({hint}).", detail=_error_message(response))
+            hint = _STATUS_HINTS.get(code, "Störung bei Bedrock" if code >= 500 else "Anfrage abgelehnt")
+            raise LLMError(f"Bedrock antwortete mit HTTP {code} ({hint}).", detail=_error_message(response))
         try:
             data = response.json()
             blocks = data.get("content") or []
             text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
         except (ValueError, AttributeError):
-            raise LLMError("NanoGPT lieferte eine unlesbare Antwort.") from None
+            raise LLMError("Bedrock lieferte eine unlesbare Antwort.") from None
         if data.get("stop_reason") == "max_tokens":
             raise LLMError(
                 "Die Modellantwort wurde abgeschnitten (Längenlimit erreicht). "
                 "MAILASSIST_MAX_TOKENS erhöhen oder die Anweisung kürzen."
             )
         if not text:
-            raise LLMError("NanoGPT lieferte keinen Text.")
+            raise LLMError("Bedrock lieferte keinen Text.")
         model = data.get("model") or self._model
         log.info("llm ok model=%s in_chars=%d out_chars=%d", model, len(system) + len(user), len(text))
         return Completion(text=text, model=model)
@@ -129,7 +135,8 @@ def _retry_after(response: httpx.Response) -> float | None:
 
 def _error_message(response: httpx.Response) -> str:
     try:
-        error = response.json().get("error")
+        data = response.json()
+        error = data.get("error") or data.get("message")  # Anthropic shape or Bedrock's {"message": ...}
     except (ValueError, AttributeError):
         return "(keine Details)"
     if isinstance(error, dict):

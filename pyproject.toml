@@ -1,7 +1,7 @@
 [project]
 name = "mailassist"
 version = "0.1.0"
-description = "KI-Antwortentwürfe für Proton Mail über Baryon MCP und NanoGPT – sendet nie selbst"
+description = "KI-Antwortentwürfe für Proton Mail über Baryon MCP oder IMAP und Claude auf Amazon Bedrock – sendet nie selbst"
 authors = [
     { name = "Kira Bouschen", email = "kira.bouschen@gmail.com" }
 ]
@@ -31,6 +31,6 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "live: calls the real NanoGPT API with synthetic corpus mails (opt-in, MAILASSIST_LIVE=1)",
+    "live: calls the real Bedrock API with synthetic corpus mails (opt-in, MAILASSIST_LIVE=1)",
     "imap_server: runs against a real IMAP *test* server (opt-in, MAILASSIST_IMAP_TEST_SERVER)",
 ]

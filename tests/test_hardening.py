@@ -11,7 +11,7 @@ import pytest
 
 from mailassist import telegram_bot as bot
 from mailassist.approval import ApprovalError
-from mailassist.llm import LLMError, NanoGPTClient
+from mailassist.llm import BedrockClient, LLMError
 from mailassist.logs import RedactingFormatter
 from mailassist.mail import MailError
 from mailassist.prompt import _is_own, build_user_prompt
@@ -121,8 +121,8 @@ def test_lookalike_brackets_cannot_imitate_tags():
 
 # --- C/F: model output validation -------------------------------------------------
 
-def _client(response: httpx.Response) -> NanoGPTClient:
-    return NanoGPTClient(KEY, "m", "https://x.test/api/v1", transport=httpx.MockTransport(lambda r: response))
+def _client(response: httpx.Response) -> BedrockClient:
+    return BedrockClient(KEY, "m", "eu-central-1", base_url="https://x.test", transport=httpx.MockTransport(lambda r: response))
 
 
 async def test_truncated_answer_is_rejected():

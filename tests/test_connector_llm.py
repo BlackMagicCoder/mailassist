@@ -12,7 +12,7 @@ from mcp.client.stdio import get_default_environment
 from pydantic import BaseModel
 
 from mailassist.core import Assistant
-from mailassist.llm import Completion, LLMError, NanoGPTClient, complete_json, parse_json
+from mailassist.llm import BedrockClient, Completion, LLMError, complete_json, parse_json
 from mailassist.mail import BaryonMail, MailError, _parse, _SearchPage
 
 from test_units import settings
@@ -90,7 +90,7 @@ def client(transport, sleeps):
     async def sleep(delay):
         sleeps.append(delay)
 
-    return NanoGPTClient("k", "m", "https://x.test/api/v1", transport=transport, sleep=sleep)
+    return BedrockClient("k", "m", "eu-central-1", base_url="https://x.test", transport=transport, sleep=sleep)
 
 
 async def test_retries_transient_errors_with_backoff():

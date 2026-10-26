@@ -146,17 +146,17 @@ def test_modified_utf7_roundtrip():
 
 
 def test_imap_settings():
-    env = {"NANOGPT_API_KEY": "k", "MAILASSIST_CONNECTOR": "imap", "IMAP_USER": "Kira@T-Online.example",
+    env = {"BEDROCK_API_KEY": "k", "MAILASSIST_CONNECTOR": "imap", "IMAP_USER": "Kira@T-Online.example",
            "IMAP_PASSWORD": "pw-123"}
     s = Settings.from_env(env)
     assert s.connector == "imap" and s.imap_host == "secureimap.t-online.de" and s.imap_port == 993
     assert s.search_folder == "INBOX" and "kira@t-online.example" in s.own_addresses
     assert "pw-123" in s.secrets() and "pw-123" not in repr(s)
     with pytest.raises(ConfigError, match="IMAP_USER und IMAP_PASSWORD"):
-        Settings.from_env({"NANOGPT_API_KEY": "k", "MAILASSIST_CONNECTOR": "imap"})
+        Settings.from_env({"BEDROCK_API_KEY": "k", "MAILASSIST_CONNECTOR": "imap"})
     with pytest.raises(ConfigError, match="MAILASSIST_CONNECTOR"):
-        Settings.from_env({"NANOGPT_API_KEY": "k", "MAILASSIST_CONNECTOR": "smtp"})
-    assert Settings.from_env({"NANOGPT_API_KEY": "k"}).search_folder == "All Mail"  # Proton default unchanged
+        Settings.from_env({"BEDROCK_API_KEY": "k", "MAILASSIST_CONNECTOR": "smtp"})
+    assert Settings.from_env({"BEDROCK_API_KEY": "k"}).search_folder == "All Mail"  # Proton default unchanged
 
 
 # --- optional: real IMAP test server ------------------------------------------------------------
@@ -198,7 +198,7 @@ async def test_health_check_shows_detected_imap_folders():
 
     from mailassist.health import format_checks, run_checks
 
-    settings = Settings.from_env({"NANOGPT_API_KEY": "k", "MAILASSIST_CONNECTOR": "imap", "IMAP_USER": OWN,
+    settings = Settings.from_env({"BEDROCK_API_KEY": "k", "MAILASSIST_CONNECTOR": "imap", "IMAP_USER": OWN,
                                   "IMAP_PASSWORD": "geheim", "MAILASSIST_KNOWLEDGE_DIR": "tests/_no_knowledge"})
 
     def session_for(fake):

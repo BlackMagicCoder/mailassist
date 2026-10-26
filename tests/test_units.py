@@ -13,17 +13,17 @@ from mailassist import telegram_bot as bot
 from mailassist.approval import ApprovalError
 from mailassist.config import ConfigError, Settings
 from mailassist.core import Assistant, DraftProposal
-from mailassist.llm import LLMError, NanoGPTClient
+from mailassist.llm import BedrockClient, LLMError
 from mailassist.logs import SecretRedactor
 from mailassist.mail import Email, EmailSummary, MessageRef, SavedDraft, ThreadMessage, html_to_text
 from mailassist.prompt import build_user_prompt, count_todos, system_prompt
 
-KEY = "sk-nano-SECRET-123"
+KEY = "ABSK-bedrock-SECRET-123"
 REF = MessageRef("All Mail", 43, 7)
 
 
 def settings(**overrides) -> Settings:
-    base = dict(nanogpt_api_key=KEY, telegram_token="123:TOKEN", telegram_allowed_user_ids=frozenset({111}),
+    base = dict(bedrock_api_key=KEY, telegram_token="123:TOKEN", telegram_allowed_user_ids=frozenset({111}),
                 own_addresses=frozenset({"me@example.net"}), knowledge_dir="tests/_no_knowledge")
     return Settings(**{**base, **overrides})
 
@@ -47,10 +47,10 @@ def test_settings_require_api_key():
 
 
 def test_settings_parse_and_hide_secrets():
-    s = Settings.from_env({"NANOGPT_API_KEY": KEY, "TELEGRAM_BOT_TOKEN": "123:TOKEN",
+    s = Settings.from_env({"BEDROCK_API_KEY": KEY, "TELEGRAM_BOT_TOKEN": "123:TOKEN",
                            "TELEGRAM_ALLOWED_USER_IDS": "111, 222", "MAILASSIST_SIGNATURE": "Viele Grüße\\nKira"})
     assert s.telegram_allowed_user_ids == {111, 222}
-    assert s.model == "anthropic/claude-sonnet-latest"
+    assert s.model == "eu.anthropic.claude-sonnet-4-6" and s.bedrock_region == "eu-central-1"
     assert s.signature == "Viele Grüße\nKira"
     assert KEY not in repr(s) and "TOKEN" not in repr(s)
 
@@ -101,22 +101,38 @@ async def test_llm_request_shape_and_no_tools():
         seen["url"] = str(request.url)
         seen["auth"] = request.headers["authorization"]
         seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={"model": "anthropic/claude-sonnet-5.5",
+        return httpx.Response(200, json={"model": "claude-sonnet-4-6",
                                          "content": [{"type": "text", "text": "Hallo Anna"}]})
 
-    client = NanoGPTClient(KEY, "anthropic/claude-sonnet-latest", "https://api.nano-gpt.com/api/v1",
-                           transport=httpx.MockTransport(handler))
+    client = BedrockClient(KEY, "eu.anthropic.claude-sonnet-4-6", "eu-central-1", transport=httpx.MockTransport(handler))
     result = await client.complete("sys", "user")
-    assert result.text == "Hallo Anna" and result.model == "anthropic/claude-sonnet-5.5"
-    assert seen["url"] == "https://api.nano-gpt.com/api/v1/messages"
+    assert result.text == "Hallo Anna" and result.model == "claude-sonnet-4-6"
+    assert seen["url"] == "https://bedrock-runtime.eu-central-1.amazonaws.com/model/eu.anthropic.claude-sonnet-4-6/invoke"
     assert seen["auth"] == f"Bearer {KEY}"
-    assert seen["body"]["model"] == "anthropic/claude-sonnet-latest"
+    assert seen["body"]["anthropic_version"] == "bedrock-2023-05-31" and "model" not in seen["body"]
+    assert seen["body"]["system"] == "sys" and seen["body"]["messages"] == [{"role": "user", "content": "user"}]
     assert "tools" not in seen["body"]
+
+
+def test_bedrock_settings_accept_aws_key_name_and_region():
+    s = Settings.from_env({"AWS_BEARER_TOKEN_BEDROCK": KEY, "BEDROCK_REGION": "us-east-1",
+                           "MAILASSIST_MODEL": "us.anthropic.claude-sonnet-4-6"})
+    assert s.bedrock_api_key == KEY and s.bedrock_region == "us-east-1" and s.bedrock_base_url is None
+    assert KEY in s.secrets() and KEY not in repr(s)
+
+
+async def test_bedrock_error_message_is_detail_only():
+    body = {"message": "anthropic.claude-sonnet-5 is not available for this account."}
+    client = BedrockClient(KEY, "m", "eu-central-1", transport=httpx.MockTransport(lambda r: httpx.Response(403, json=body)))
+    with pytest.raises(LLMError) as exc:
+        await client.complete("s", "u")
+    assert "HTTP 403" in str(exc.value) and "Modellzugang" in str(exc.value)
+    assert "not available" in exc.value.detail
 
 
 async def test_llm_error_does_not_leak_key_or_content(caplog):
     transport = httpx.MockTransport(lambda r: httpx.Response(401, json={"error": {"message": "invalid key"}}))
-    client = NanoGPTClient(KEY, "m", "https://x.test/api/v1", transport=transport)
+    client = BedrockClient(KEY, "m", "eu-central-1", base_url="https://x.test", transport=transport)
     caplog.set_level(logging.DEBUG)
     with pytest.raises(LLMError) as exc:
         await client.complete("sys", "GEHEIMER MAILINHALT")

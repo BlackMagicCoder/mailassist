@@ -17,7 +17,7 @@ from .audit import AuditLog, DraftLedger, message_key
 from .checks import date_variants, unsupported_claims
 from .config import Settings
 from .knowledge import facts_block, load_knowledge, select_facts
-from .llm import Completion, LLMAdapter, NanoGPTClient
+from .llm import BedrockClient, Completion, LLMAdapter
 from .mail import BaryonMail, MailBackend, MailError
 from .models import DraftProposal, Email, EmailSummary, MessageRef, SavedDraft, ThreadMessage
 from .prompt import build_user_prompt, count_todos, sanitize_report, system_prompt
@@ -113,10 +113,11 @@ class Assistant:
 
             llm = MockModel(naive=settings.demo_model == "naiv")
         else:
-            llm = NanoGPTClient(
-                api_key=settings.nanogpt_api_key,
+            llm = BedrockClient(
+                api_key=settings.bedrock_api_key,
                 model=settings.model,
-                base_url=settings.nanogpt_base_url,
+                region=settings.bedrock_region,
+                base_url=settings.bedrock_base_url,
                 max_tokens=settings.max_tokens,
             )
         if settings.connector == "imap":

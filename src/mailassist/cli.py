@@ -21,7 +21,7 @@ from .logs import setup_logging
 from .models import EmailSummary, MessageRef
 from .triage import format_triage
 
-PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an NanoGPT (und Anthropic) übertragen."
+PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an Amazon Bedrock (Claude) übertragen."
 MOCK_NOTE = (
     "MOCK: echtes Postfach, aber lokales Regel-Modell ohne KI – Mailinhalte gehen an kein Sprachmodell. "
     "Gespeicherte Entwürfe landen wirklich im Entwürfe-Ordner (nur Platzhaltertext)."
@@ -103,7 +103,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--demo", action="store_true",
                         help="Demo: synthetisches Postfach und kostenloses Mock-Modell, kein Zugang und kein Schlüssel nötig")
     parser.add_argument("--mock", action="store_true",
-                        help="echtes Postfach, aber lokales Mock-Modell statt NanoGPT: kein Schlüssel, Mailinhalte gehen an kein Sprachmodell")
+                        help="echtes Postfach, aber lokales Mock-Modell statt Bedrock: kein Schlüssel, Mailinhalte gehen an kein Sprachmodell")
     parser.add_argument("--naiv", action="store_true",
                         help="nur mit --demo/--mock: Mock-Modell befolgt absichtlich Anweisungen aus Mails (zeigt die Schutzprüfungen)")
     parser.add_argument("--datenfluss", action="store_true",
@@ -121,8 +121,8 @@ def _parser() -> argparse.ArgumentParser:
     antworte.add_argument("--hinweis", help='z. B. "freundliche Absage"')
     antworte.add_argument("--sprache", help="Antwortsprache erzwingen, z. B. de oder en")
     sub.add_parser("bot", help="Telegram-Bot starten")
-    check = sub.add_parser("check", help="Erreichbarkeit von Bridge/Baryon, NanoGPT und Telegram prüfen")
-    check.add_argument("--llm", action="store_true", help="auch NanoGPT prüfen (ein kleiner Modellaufruf)")
+    check = sub.add_parser("check", help="Erreichbarkeit von Postfach, Bedrock und Telegram prüfen")
+    check.add_argument("--llm", action="store_true", help="auch Bedrock prüfen (ein kleiner Modellaufruf)")
     check.add_argument("--telegram", action="store_true", help="auch den Telegram-Bot-Token prüfen")
     return parser
 

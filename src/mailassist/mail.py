@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 ALLOWED_TOOLS = frozenset({"search_emails", "get_email", "get_thread", "save_reply_draft"})
 
 # Environment passed to baryon-mcp besides the MCP SDK's safe defaults. The
-# NanoGPT key and Telegram token are deliberately not inherited.
+# Bedrock key and Telegram token are deliberately not inherited.
 _PASSTHROUGH_PREFIXES = ("PROTON_BRIDGE_", "BARYON_")
 _PASSTHROUGH_VARS = ("XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "APPDATA", "LOCALAPPDATA")
 

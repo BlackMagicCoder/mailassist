@@ -1,5 +1,5 @@
 """P2-2: evaluation harness. Offline it runs against a scripted model; the live run is
-opt-in (MAILASSIST_LIVE=1 and NANOGPT_API_KEY) and sends only synthetic corpus mails."""
+opt-in (MAILASSIST_LIVE=1 and BEDROCK_API_KEY) and sends only synthetic corpus mails."""
 
 import json
 import os
@@ -10,7 +10,7 @@ import pytest
 from dotenv import load_dotenv
 
 from mailassist.config import Settings
-from mailassist.llm import Completion, NanoGPTClient
+from mailassist.llm import BedrockClient, Completion
 
 from corpus_utils import load_cases
 from eval_harness import run_eval
@@ -44,10 +44,11 @@ async def test_harness_reports_metrics_and_flags_obeyed_injections():
 
 @pytest.mark.live
 @pytest.mark.skipif(os.environ.get("MAILASSIST_LIVE") != "1", reason="live eval is opt-in: MAILASSIST_LIVE=1")
-async def test_live_eval_against_nanogpt():
+async def test_live_eval_against_bedrock():
     load_dotenv()
     settings = Settings.from_env()
-    llm = NanoGPTClient(settings.nanogpt_api_key, settings.model, settings.nanogpt_base_url, max_tokens=settings.max_tokens)
+    llm = BedrockClient(settings.bedrock_api_key, settings.model, settings.bedrock_region,
+                        base_url=settings.bedrock_base_url, max_tokens=settings.max_tokens)
     report = await run_eval(llm, CASES)
     out = Path(settings.data_dir) / "eval-report.json"
     out.parent.mkdir(parents=True, exist_ok=True)

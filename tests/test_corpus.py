@@ -20,7 +20,7 @@ from mailassist.approval import ApprovalError
 from mailassist.checks import unsupported_claims
 from mailassist.core import Assistant
 from mailassist.knowledge import facts_block, load_knowledge
-from mailassist.llm import LLMError, NanoGPTClient
+from mailassist.llm import BedrockClient, LLMError
 from mailassist.prompt import build_user_prompt
 from mailassist.triage import Category, Fact, Triage, ground, mail_sources
 
@@ -156,7 +156,7 @@ async def test_model_failure_never_leads_to_a_saved_draft(failure):
     async def no_sleep(_):
         return None
 
-    llm = NanoGPTClient("k", "m", "https://x.test/api/v1", transport=httpx.MockTransport(FAILURES[failure]), sleep=no_sleep)
+    llm = BedrockClient("k", "m", "eu-central-1", base_url="https://x.test", transport=httpx.MockTransport(FAILURES[failure]), sleep=no_sleep)
     assistant = Assistant(settings(), session, llm)
     with pytest.raises(LLMError):
         await assistant.propose(case.email().ref, "Angebot", owner="cli")

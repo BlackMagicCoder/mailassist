@@ -12,7 +12,7 @@ Du (Telegram oder Terminal)
       ├── Analyse: Kategorie, Fakten mit Belegstelle, offene Fragen, nächste Schritte (nur Vorschläge)
       ├── Entwurf: nur aus Mail, Verlauf, deiner Anweisung und der freigegebenen Wissensbasis
       ├── Prüfung: ungestützte Zahlen, Links, Adressen, Prozent-Zusagen → Warnung vor der Freigabe
-      └──────► NanoGPT ──► Claude Sonnet   (erhält nur die gewählte Unterhaltung, keine Werkzeuge)
+      └──────► Amazon Bedrock (Frankfurt) ──► Claude Sonnet   (erhält nur die gewählte Unterhaltung, keine Werkzeuge)
 ```
 
 ## Architektur
@@ -21,7 +21,7 @@ Du (Telegram oder Terminal)
 |---|---|---|
 | E-Mail-Connector | `mail.py`, `imap.py`, `demo.py` | Proton über Baryon MCP (Werkzeug-Allowlist) · beliebiges IMAP-Postfach wie T-Online (Befehls-Wächter: nur lesen, Entwürfe ablegen) · Demo-Postfach mit synthetischen Mails |
 | Prozesslogik | `core.py`, `triage.py`, `knowledge.py`, `checks.py`, `prompt.py` | Lesen → Einordnen → Entwurf → Prüfen; Mailinhalt gilt als nicht vertrauenswürdig |
-| LLM-Adapter | `llm.py` | NanoGPT (Anthropic-Messages-Format), Wiederholung bei Störungen, JSON-Modus mit Validierung |
+| LLM-Adapter | `llm.py` | Claude auf Amazon Bedrock (InvokeModel, Bedrock-API-Schlüssel), Wiederholung bei Störungen, JSON-Modus mit Validierung |
 | Freigabe | `approval.py`, `audit.py` | Freigabe an Entwurf + Inhalts-Hash gebunden, Duplikat-Erkennung, Prüfprotokoll ohne Inhalte |
 | Oberflächen | `cli.py`, `telegram_bot.py`, `dataflow.py` | dünne Schichten über dem Kern; Datenfluss-Ansicht |
 
@@ -59,7 +59,7 @@ uv run mailassist --demo bot                                # Telegram-Demo (bra
 
 ## Datenschutz – bitte lesen
 
-- **Der Inhalt der gewählten Unterhaltung wird an NanoGPT übertragen und von dort an Anthropic (Claude) weitergegeben** – für die Analyse und für jeden Entwurf. Übertragen werden: die ausgewählte Mail, die bisherigen Nachrichten dieser Unterhaltung (gekürzt, max. ca. 40 000 Zeichen), deine Anweisung und passende Einträge der Wissensbasis. Andere Mails verlassen den Server nicht. Eine Seite zu Speicherdauer/Datenverwendung haben wir in der NanoGPT-Dokumentation nicht gefunden – prüfe die Bedingungen selbst, bevor du vertrauliche Mails verarbeitest.
+- **Der Inhalt der gewählten Unterhaltung wird an Amazon Bedrock (AWS) übertragen und dort von Claude verarbeitet** – für die Analyse und für jeden Entwurf. Standard ist die Region Frankfurt mit EU-Inferenzprofil (Anfragen bleiben in EU-Regionen). Übertragen werden: die ausgewählte Mail, die bisherigen Nachrichten dieser Unterhaltung (gekürzt, max. ca. 40 000 Zeichen), deine Anweisung und passende Einträge der Wissensbasis. Andere Mails verlassen den Server nicht. Laut [AWS-Dokumentation](https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html) haben Modellanbieter wie Anthropic keinen Zugriff auf Prompts und Antworten; prüfe die AWS-Bedingungen selbst, bevor du vertrauliche Mails verarbeitest.
 - **Telegram-Bot-Chats sind nicht Ende-zu-Ende-verschlüsselt.** Im Bot-Modus liegen Absender, Betreffzeilen, Analyse und Entwurfstexte auch bei Telegram. Fehlermeldungen an Telegram enthalten nie Server- oder Mailtexte.
 - **Gemieteter Server:** Bridge entschlüsselt dein Postfach auf dem Server. Wer den Server kontrolliert (auch der Hoster), kann technisch darauf zugreifen.
 - **Logs** enthalten nur IDs, Zählwerte und den Modellnamen – keine Mailinhalte. Schlüssel werden zusätzlich automatisch geschwärzt, auch in Tracebacks.
@@ -82,8 +82,8 @@ Für kostenlose Postfächer ohne Proton Bridge. Kein Baryon nötig.
    # IMAP_HOST=secureimap.t-online.de   (Standard, Port 993, verschlüsselt)
    ```
 4. `uv run mailassist --mock check` – zeigt, ob die Anmeldung klappt und welche Ordner für **Entwürfe** und **Gesendet** erkannt wurden. Wird kein Entwürfe-Ordner gefunden, den Namen aus der Meldung mit `IMAP_DRAFTS_FOLDER` setzen.
-5. **Erst kostenlos mit `--mock` testen:** `uv run mailassist --mock neu`, `--mock analysiere 1`, `--mock antworte 1`. Das lokale Regel-Modell braucht keinen NanoGPT-Schlüssel, Mailinhalte gehen an kein Sprachmodell – aber das Postfach ist echt: ein gespeicherter (Platzhalter-)Entwurf landet wirklich im Entwürfe-Ordner.
-6. Danach ohne `--mock` mit dem echten Modell (braucht `NANOGPT_API_KEY`). Entwürfe landen im Entwürfe-Ordner; versenden tust du selbst im Telekom-Webmailer oder Mailprogramm.
+5. **Erst kostenlos mit `--mock` testen:** `uv run mailassist --mock neu`, `--mock analysiere 1`, `--mock antworte 1`. Das lokale Regel-Modell braucht keinen Bedrock-Schlüssel, Mailinhalte gehen an kein Sprachmodell – aber das Postfach ist echt: ein gespeicherter (Platzhalter-)Entwurf landet wirklich im Entwürfe-Ordner.
+6. Danach ohne `--mock` mit dem echten Modell (braucht `BEDROCK_API_KEY`). Entwürfe landen im Entwürfe-Ordner; versenden tust du selbst im Telekom-Webmailer oder Mailprogramm.
 
 Unterschiede zu Proton: Es gibt keinen Ordner „All Mail“ – gesucht wird im Posteingang (`MAILASSIST_SEARCH_FOLDER` ändert das), der Verlauf wird über die Antwort-Kopfzeilen aus Posteingang und „Gesendet“ zusammengesetzt. Andere Anbieter (GMX, web.de, Posteo, mailbox.org, Gmail mit App-Passwort …) funktionieren über `IMAP_HOST`; bei manchen muss IMAP erst in den Einstellungen aktiviert werden.
 
@@ -96,7 +96,7 @@ Unterschiede zu Proton: Es gibt keinen Ordner „All Mail“ – gesucht wird im
 - Proton-Konto mit Zugang zu **Proton Mail Bridge** (Bridge ist nach unserem Kenntnisstand kostenpflichtigen Tarifen vorbehalten – bitte prüfen)
 - **Baryon MCP** v0.6.3 (<https://github.com/combor/baryon-mcp>)
 - **uv** (<https://docs.astral.sh/uv/>), Python 3.12 wird von uv bereitgestellt
-- **NanoGPT-API-Schlüssel** (<https://nano-gpt.com>)
+- **Amazon-Bedrock-API-Schlüssel** (AWS-Konsole → Amazon Bedrock → *API keys*); Claude Sonnet muss im AWS-Konto aufrufbar sein – `uv run mailassist check --llm` zeigt es
 - für Telegram: ein Bot-Token von **@BotFather**
 
 ## Installation auf dem Server (Linux-VPS, empfohlen: Debian 12 / Ubuntu 24.04)
@@ -150,9 +150,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Projekt nach ~/mailassist kopieren (git clone oder scp/rsync)
 cd ~/mailassist
 uv sync --no-dev
-cp .env.example .env && chmod 600 .env && nano .env    # NANOGPT_API_KEY eintragen
+cp .env.example .env && chmod 600 .env && nano .env    # BEDROCK_API_KEY eintragen
 mkdir -p knowledge                                      # Wissensbasis anlegen (siehe unten)
-uv run mailassist check --llm                           # Ampel: Konfiguration, Postfach, NanoGPT
+uv run mailassist check --llm                           # Ampel: Konfiguration, Postfach, Bedrock
 ```
 
 **5. Telegram-Bot.**
@@ -172,7 +172,7 @@ journalctl --user -u mailassist-bot -f      # Log ansehen
 
 1. Proton Mail Bridge für Windows installieren, anmelden, unter *Einstellungen → Erweitert → TLS-Zertifikate exportieren* `cert.pem` speichern.
 2. Baryon: `baryon-mcp_0.6.3_windows_amd64.zip` und `baryon-mcp_0.6.3_SHA256SUMS` von der Release-Seite laden, `Get-FileHash baryon-mcp_*.zip -Algorithm SHA256` mit der Datei vergleichen, `baryon-mcp.exe` in einen Ordner im `PATH` entpacken, dann `baryon-mcp setup --skip-client-config`. Das Passwort landet in der Windows-Anmeldeinformationsverwaltung.
-3. Im Projektordner: `uv sync`, `.env.example` nach `.env` kopieren, `NANOGPT_API_KEY` eintragen, `uv run mailassist check`.
+3. Im Projektordner: `uv sync`, `.env.example` nach `.env` kopieren, `BEDROCK_API_KEY` eintragen, `uv run mailassist check`.
 
 ## Wissensbasis (freigegebene Unternehmensinformationen)
 
@@ -238,8 +238,9 @@ Erster Schritt immer: `uv run mailassist check --llm --telegram`.
 | `Postfach-Zugriff fehlgeschlagen` / Timeout | Bridge läuft nicht: `systemctl --user status protonmail-bridge` bzw. Bridge-App starten. In der Kommandozeile stehen unter „Details“ die Originalmeldungen. |
 | Fehler zu Zertifikat / TLS | Bridge-Zertifikat hat sich geändert: `baryon-mcp setup` erneut ausführen. |
 | Fehler zu Zugangsdaten | Bridge-Passwort geändert: `baryon-mcp setup --reset-credentials`. |
-| `NanoGPT antwortete mit HTTP 401/403` | API-Schlüssel falsch oder abgelaufen (`.env` prüfen). |
-| `HTTP 402` / `429` | Guthaben aufgebraucht bzw. zu viele Anfragen. Bei 429 und 5xx versucht mailassist es automatisch bis zu zweimal erneut. |
+| `Bedrock antwortete mit HTTP 401/403` | API-Schlüssel falsch oder abgelaufen (`.env` prüfen; Bedrock-Schlüssel haben ein Ablaufdatum). Steht unter „Details“ *not available for this account*, ist das Modell für dein AWS-Konto nicht freigeschaltet – anderes Modell in `MAILASSIST_MODEL` oder Zugang bei AWS anfragen. |
+| `Bedrock antwortete mit HTTP 400` / `404` | Modell-ID passt nicht zur Region (`eu.…` nur mit `eu-*`-Region) bzw. Anthropic-Formular noch nicht eingereicht: Bedrock-Konsole → *Model catalog* → Claude-Modell wählen → Formular ausfüllen. |
+| `HTTP 429` | Zu viele Anfragen (Kontingent im AWS-Konto). Bei 429 und 5xx versucht mailassist es automatisch bis zu zweimal erneut. |
 | `Modellantwort wurde abgeschnitten` | `MAILASSIST_MAX_TOKENS` erhöhen oder die Anweisung kürzen. |
 | `Speichern fehlgeschlagen … könnte trotzdem angelegt worden sein` | Im Entwürfe-Ordner nachsehen, bevor du erneut speicherst. |
 | `Zu dieser Mail wurde bereits ein Entwurf gespeichert` | Absichtlich: erst nach Bestätigung wird ein weiterer gespeichert. |
@@ -266,4 +267,4 @@ Testdaten sind ausschließlich synthetisch (`src/mailassist/demo_data/beispiel_g
 ### Stand der Prüfung
 
 - **Automatisch getestet (offline):** Werkzeug-Allowlist und MCP-Protokoll, vollständiger Verlauf über Ordner hinweg, validierte Baryon-Antworten, Freigabe-Bindung (veraltete Knöpfe, Doppeltipp, Hash, fremde Nutzer), Duplikat-Erkennung, Prüfprotokoll ohne Inhalte, Analyse mit Belegprüfung, Wissensbasis mit Freigabe/Ablauf, Ausgabeprüfung, 21 synthetische Mails inkl. 7 Manipulationsversuchen, Modellfehler (Timeout, 429/5xx, abgeschnitten, kein JSON), Schwärzung in Logs, CLI- und Bot-Abläufe.
-- **Noch nicht getestet** (braucht Bridge, Schlüssel und Token): echte Verbindung zu Proton Mail Bridge, echte Antworten von NanoGPT (inkl. Live-Evaluierung), echter Telegram-Betrieb, Server-Installation. Ersten Live-Test bitte mit einer unkritischen Testmail machen.
+- **Noch nicht getestet** (braucht Bridge, Schlüssel und Token): echte Verbindung zu Proton Mail Bridge, echte Antworten über Bedrock in der Anwendung (inkl. Live-Evaluierung; bisher nur 1-Token-Erreichbarkeitstest), echter Telegram-Betrieb, Server-Installation. Ersten Live-Test bitte mit einer unkritischen Testmail machen.

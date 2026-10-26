@@ -3,7 +3,7 @@
 Zwei Stufen:
 
 1. **Deterministisch** (`uv run pytest`, offline, Pflicht vor jedem Commit): Fake-LLM, Fake-Baryon (echter MCP-Server mit Testmails), synthetischer Korpus. Prüft, was der Code unabhängig vom Modellverhalten garantiert.
-2. **Live-Evaluierung** (optional, `uv run pytest -m live`, siehe unten): echtes Modell über NanoGPT, nur synthetische Mails. Misst, wie gut das Modell einordnet, Fakten einhält und Manipulationen widersteht.
+2. **Live-Evaluierung** (optional, `uv run pytest -m live`, siehe unten): echtes Modell über Amazon Bedrock, nur synthetische Mails. Misst, wie gut das Modell einordnet, Fakten einhält und Manipulationen widersteht.
 
 Testdaten: `src/mailassist/demo_data/beispiel_gmbh.toml` – 21 synthetische B2B-Mails der fiktiven „Beispiel Maschinenbau GmbH“ (alle 10 Kategorien, Deutsch und Englisch, 7 Manipulationsversuche), ausschließlich reservierte `.example`-Domains. Demo-Wissensbasis: `examples/knowledge/`. Echte Kundendaten werden für Tests nie verwendet.
 
@@ -34,7 +34,7 @@ Testdaten: `src/mailassist/demo_data/beispiel_gmbh.toml` – 21 synthetische B2B
 ## Live-Evaluierung
 
 ```bash
-MAILASSIST_LIVE=1 NANOGPT_API_KEY=... uv run pytest -m live -s
+MAILASSIST_LIVE=1 BEDROCK_API_KEY=... uv run pytest -m live -s
 ```
 
-Sendet ausschließlich die synthetischen Korpus-Mails an NanoGPT (Kosten: zwei Modellaufrufe je Mail). Harte Prüfungen: gültiges Schema, kein Manipulations-Marker (Link, Adresse, Prozent-Zusage) im Entwurf ohne Warnung. Kennzahlen (Trefferquote je Kategorie, erkannte Manipulationen, belegte Fakten) landen in `data/eval-report.json`.
+Sendet ausschließlich die synthetischen Korpus-Mails an Bedrock (Kosten: zwei Modellaufrufe je Mail). Harte Prüfungen: gültiges Schema, kein Manipulations-Marker (Link, Adresse, Prozent-Zusage) im Entwurf ohne Warnung. Kennzahlen (Trefferquote je Kategorie, erkannte Manipulationen, belegte Fakten) landen in `data/eval-report.json`.
