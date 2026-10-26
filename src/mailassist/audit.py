@@ -21,7 +21,7 @@ from .models import MessageRef
 
 ALLOWED_FIELDS = frozenset({
     "proposal_id", "message_key", "content_hash", "model", "owner", "reason",
-    "category", "injection", "todos", "warnings", "facts", "verified",
+    "category", "injection", "todos", "warnings", "critical", "facts", "verified",
 })
 
 

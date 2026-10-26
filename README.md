@@ -40,7 +40,7 @@ uv run mailassist --demo bot                                # Telegram-Demo (bra
 ```
 
 - **Daten:** 48 synthetische Mails – 21 eigene B2B-Mails der fiktiven „Beispiel Maschinenbau GmbH“ (inkl. 7 Manipulationsversuchen) und 27 Mails aus dem Gretel-Datensatz *synthetic_pii_finance_multilingual* (Apache 2.0, künstliche Personendaten). Herkunft, Lizenz und Änderungen: [`src/mailassist/demo_data/NOTICE.md`](src/mailassist/demo_data/NOTICE.md).
-- **Mock-Modell:** regelbasiert, lokal, kostenlos – **keine KI**. Es liest aber genau den Text, den ein echtes Modell bekäme. `--naiv` lässt es absichtlich Anweisungen aus Mails befolgen (Links, Prozent-Rabatte), damit man sieht, wie die Prüfung vor der Freigabe anschlägt.
+- **Mock-Modell:** regelbasiert, lokal, kostenlos – **keine KI**. Es liest aber genau den Text, den ein echtes Modell bekäme. `--naiv` lässt es absichtlich Anweisungen aus Mails befolgen (Links, Prozent-Rabatte, „kostenlos“), damit man sieht, wie die Prüfung vor der Freigabe anschlägt.
 - **Datenfluss** (`--datenfluss`): zeigt Schritt für Schritt, was gelesen, was entfernt/entschärft (versteckter HTML-Text, imitierte Steuer-Tags), welche freigegebenen Firmeninfos verwendet, was ans Modell geschickt und was protokolliert wurde – im Terminal und als HTML-Bericht unter `data/demo/datenfluss/` mit dem vollständigen Wortlaut.
 - Alles bleibt lokal unter `data/demo/` (Entwürfe in `demo_entwuerfe.json`); die echte Konfiguration und echte Daten werden nie benutzt.
 
@@ -53,6 +53,7 @@ uv run mailassist --demo bot                                # Telegram-Demo (bra
 - **Kein zweiter Entwurf ohne Rückfrage.** Wurde zu einer Mail schon ein Entwurf gespeichert, fragt mailassist nach.
 - **Mailinhalt gilt als nicht vertrauenswürdig.** Anweisungen in eingehenden Mails werden als Daten markiert und nicht befolgt; Abgrenzungs-Tags lassen sich auch mit Doppelgänger-Zeichen nicht imitieren; versteckter HTML-Text erreicht das Modell nicht; gefälschte Absendernamen gelten nicht als „du“.
 - **Keine erfundenen Fakten.** Preise, Fristen, Konditionen und andere Zusagen nur aus der Wissensbasis oder deiner Anweisung, sonst `[[TODO: …]]`.
+- **Unbelegte Zusagen brauchen eine zweite Bestätigung.** Sagt der Entwurf etwas zu – kostenlos, Rabatt, Erstattung, Gutschrift/Kulanz, Garantie, Liefertermin –, das weder deine Anweisung noch eine freigegebene Firmeninfo deckt, wird er als KRITISCH markiert. Speichern geht dann nur nach einer eigenen Bestätigung dieses Entwurfs (Kommandozeile: `zusage` eintippen; Telegram: „Zusage bestätigen und speichern“). Was die Kundenmail behauptet („wie zugesagt …“), gilt nie als Beleg.
 - **Nächste Schritte sind Vorschläge.** Nichts davon wird ausgeführt; Schritte, die ein anderes System ändern würden, sind gekennzeichnet.
 - **Baryon-Version festgelegt.** Startet eine andere als die geprüfte Version, verweigert mailassist den Zugriff (`MAILASSIST_BARYON_VERSION`).
 - **Telegram:** Der Bot bedient nur die Nutzer-IDs in `TELEGRAM_ALLOWED_USER_IDS`; alles andere wird vor jeder Verarbeitung verworfen.
@@ -216,16 +217,16 @@ uv run mailassist antworte 2 --sprache en # Antwortsprache erzwingen
 uv run mailassist check [--llm] [--telegram]   # Erreichbarkeit prüfen
 ```
 
-`antworte` zeigt den Entwurf mit Hinweisen und fragt: `[j]a` speichern, `[n]ein` verwerfen, `[ä]ndern` mit Änderungswunsch.
+`antworte` zeigt den Entwurf mit Hinweisen und fragt: `[j]a` speichern, `[n]ein` verwerfen, `[ä]ndern` mit Änderungswunsch. Steht unter dem Entwurf eine KRITISCH-Zeile, fragt mailassist nach `j` zusätzlich nach `zusage`; Enter speichert nichts.
 
 Die Antwort wird in der Sprache der eingegangenen Mail geschrieben, außer du gibst etwas anderes an. Mit `MAILASSIST_SIGNATURE` in `.env` bekommt jeder Entwurf deine Signatur.
 
 ## Grenzen – bitte kennen
 
 - **Die Ausgabeprüfung ist kontextfrei.** Sie findet Zahlen, Links, Adressen und Prozentangaben, die *nirgends* belegt sind. Eine belegte Zahl im falschen Zusammenhang („Lieferung in 2 Tagen“, weil „2 Werktage“ für Ersatzteile in der Wissensbasis steht) fällt nicht auf.
-- **Wort-Zusagen** („kostenlos“, „selbstverständlich erstatten wir“) erkennt die Prüfung nicht. Dafür gibt es die Prompt-Regeln – und deine Freigabe.
+- **Die Zusagen-Prüfung arbeitet mit Stichwörtern, nicht mit Textverständnis.** Sie erkennt Kostenfreiheit, Rabatt, Erstattung, Gutschrift/Kulanz, Garantie und Liefer-/Terminzusagen über Wortlisten (Deutsch und etwas Englisch), überspringt Fragen, Zitate in Anführungszeichen und verneinte Satzteile und vergleicht Prozente, Zahlen und Tage mit deiner Anweisung und den Firmeninfos. Umschreibungen ohne Stichwort („das übernehmen wir für Sie“) erkennt sie nicht; indirekte Rede („Sie schreiben, die Lieferung sei kostenlos“) wird fälschlich als Zusage gemeldet. Passt das Stichwort zu einer Firmeninfo, aber nicht genau, gibt es nur einen Hinweis mit dem freigegebenen Wortlaut zum Abgleich – keinen Beleg.
 - **Die Analyse ist eine Einschätzung des Modells.** Belegt (✓) heißt: das Zitat steht wörtlich in der Mail – nicht, dass die Deutung stimmt.
-- Wie gut das echte Modell einordnet und Manipulationen widersteht, misst die Live-Evaluierung (siehe [docs/testplan.md](docs/testplan.md)). Stand 26.10.2026 mit gpt-oss-120b, 21 synthetische Mails: 76 % richtig eingeordnet, 5 von 7 Manipulationsversuchen erkannt, in 2 Entwürfen erschlichene Rabatte (30 %, 40 %) übernommen – beide vor der Freigabe als „nicht belegt“ markiert. **Warnungen also immer lesen.**
+- Wie gut das echte Modell einordnet und Manipulationen widersteht, misst die Live-Evaluierung (siehe [docs/testplan.md](docs/testplan.md)). Stand 26.10.2026 mit gpt-oss-120b, 21 synthetische Mails: 76 % richtig eingeordnet, 5 von 7 Manipulationsversuchen erkannt, in 2 Entwürfen erschlichene Rabatte (30 %, 40 %) übernommen – beide vor der Freigabe als „nicht belegt“ markiert. Zweiter Lauf nach Einführung der Zusagen-Prüfung (gleicher Tag, Einzellauf, keine Statistik): 81 % richtig eingeordnet, 4 von 7 Manipulationen erkannt, 1 Entwurf mit erschlichenem Rabatt (30 %) und „Lieferung morgen“ – als KRITISCH markiert, Speichern nur nach Bestätigung; dazu 1 legitimer Entwurf mit nicht freigegebener Erstattungszusage (ebenfalls KRITISCH), 4 Entwürfe nur mit Hinweisen. **Warnungen also immer lesen.**
 
 ## Fehlerbehebung
 

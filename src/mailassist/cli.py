@@ -31,6 +31,7 @@ DEMO_NOTE = (
     "nichts verlässt diesen Rechner, kein echtes Postfach."
 )
 RESULTS_FILE = "letzte_liste.json"
+CONFIRM_WORD = "zusage"  # deliberately not "j": an unbacked commitment needs a conscious second step
 
 
 def _results_path(settings: Settings) -> Path:
@@ -67,6 +68,8 @@ def _print_proposal(p: DraftProposal) -> None:
     print("\n--- Ende des Entwurfs ---")
     if p.todo_count:
         print(f"Achtung: {p.todo_count} offene [[TODO]]-Stelle(n) vor dem Versand ergänzen.")
+    for warning in p.critical:
+        print(f"KRITISCH: {warning}")
     for warning in p.warnings:
         print(f"Achtung: {warning}")
 
@@ -77,6 +80,12 @@ async def _reply(assistant: Assistant, ref: MessageRef, instruction: str | None,
         _print_proposal(proposal)
         choice = input(f"\nAls Entwurf im {mailbox} speichern? [j]a / [n]ein / [ä]ndern: ").strip().lower()
         if choice in ("j", "ja", "y"):
+            if proposal.critical:
+                print("Der Entwurf sagt etwas zu, das weder deine Anweisung noch die freigegebenen Firmeninfos decken.")
+                if input(f"Zum Speichern „{CONFIRM_WORD}“ eintippen, sonst Enter: ").strip().lower() != CONFIRM_WORD:
+                    print("Nicht gespeichert. Mit [ä]ndern lässt sich die Zusage entfernen.")
+                    continue
+                assistant.confirm_commitments(proposal.id, proposal.content_hash, "cli")
             try:
                 saved = await assistant.save(proposal)
             except DuplicateDraftError as exc:

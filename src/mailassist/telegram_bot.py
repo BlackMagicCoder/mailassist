@@ -24,7 +24,7 @@ from telegram.ext import (
     filters,
 )
 
-from .approval import MIN_HASH_PREFIX, DuplicateDraftError
+from .approval import MIN_HASH_PREFIX, CommitmentConfirmationError, DuplicateDraftError
 from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
 from .errors import AssistantError
@@ -135,6 +135,7 @@ async def _send_proposal(update: Update, context: ContextTypes.DEFAULT_TYPE, pro
     notes = []
     if proposal.todo_count:
         notes.append(f"⚠️ {proposal.todo_count} offene [[TODO]]-Stelle(n)")
+    notes.extend(f"🛑 {w}" for w in proposal.critical)
     notes.extend(f"⚠️ {w}" for w in proposal.warnings)
     footer = ("\n\n" + "\n".join(notes)) if notes else ""
     parts = split_message(header + proposal.body + footer)
@@ -192,10 +193,23 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     assistant, owner = _assistant(context), _owner(update)
     proposal_id, _, content_hash = rest.partition(":")
-    if kind in ("save", "force"):
+    if kind in ("save", "force", "confirm"):
         await query.edit_message_reply_markup(reply_markup=None)
         try:
+            if kind == "confirm":
+                assistant.confirm_commitments(proposal_id, content_hash, owner)
             saved = await assistant.save_approved(proposal_id, content_hash, owner, force=kind == "force")
+        except CommitmentConfirmationError as exc:
+            confirm = InlineKeyboardMarkup([[
+                InlineKeyboardButton("Zusage bestätigen und speichern", callback_data=f"confirm:{proposal_id}:{content_hash}"),
+                InlineKeyboardButton("Ändern", callback_data=f"edit:{proposal_id}"),
+                InlineKeyboardButton("Verwerfen", callback_data=f"drop:{proposal_id}"),
+            ]])
+            context.user_data["draft_message"] = await query.message.reply_text(
+                f"🛑 {exc} Die markierten Zusagen deckt weder deine Anweisung noch eine freigegebene Firmeninfo.",
+                reply_markup=confirm,
+            )
+            return
         except DuplicateDraftError as exc:
             confirm = InlineKeyboardMarkup([[
                 InlineKeyboardButton("Trotzdem speichern", callback_data=f"force:{proposal_id}:{content_hash}"),

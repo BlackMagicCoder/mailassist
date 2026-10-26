@@ -14,7 +14,7 @@ from typing import Any
 
 from .approval import ApprovalError, ApprovalGate, DuplicateDraftError
 from .audit import AuditLog, DraftLedger, message_key
-from .checks import date_variants, unsupported_claims
+from .checks import commitment_warnings, date_variants, unsupported_claims
 from .config import Settings
 from .knowledge import facts_block, load_knowledge, select_facts
 from .llm import BedrockClient, Completion, LLMAdapter
@@ -191,7 +191,8 @@ class Assistant:
         )
         completion = await self._model().complete(system_prompt(self._settings.signature), user)
         trusted = [instruction or "", change_request or "", facts or "", self._settings.signature or ""]
-        sources = mail_sources(email, thread) + [date_variants(email.date)] + trusted
+        mail = mail_sources(email, thread) + [date_variants(email.date)]
+        critical, hints = commitment_warnings(completion.text, [instruction or "", change_request or ""], facts or "", mail)
         proposal = DraftProposal(
             ref=ref,
             subject=email.subject,
@@ -199,18 +200,22 @@ class Assistant:
             body=completion.text,
             model=completion.model,
             message_id=email.message_id,
-            warnings=tuple(unsupported_claims(completion.text, sources, trusted_sources=trusted)),
+            warnings=tuple(unsupported_claims(completion.text, mail + trusted, trusted_sources=trusted) + hints),
+            critical=tuple(critical),
         )
         self._gate.register(proposal, owner)
-        self._trace("pruefung", {"warnungen": list(proposal.warnings), "todos": proposal.todo_count})
+        self._trace("pruefung", {"kritisch": list(proposal.critical), "warnungen": list(proposal.warnings),
+                                 "todos": proposal.todo_count})
         self._record(
             "proposed", proposal_id=proposal.id, message_key=message_key(email.message_id, ref),
             content_hash=proposal.content_hash[:16], model=proposal.model, owner=owner,
-            todos=proposal.todo_count, warnings=len(proposal.warnings), facts=len(entries),
+            todos=proposal.todo_count, warnings=len(proposal.warnings), critical=len(proposal.critical),
+            facts=len(entries),
         )
         log.info(
-            "proposal id=%s uid=%s thread=%d facts=%d todos=%d warnings=%d",
+            "proposal id=%s uid=%s thread=%d facts=%d todos=%d warnings=%d critical=%d",
             proposal.id, ref.uid, len(thread), len(entries), count_todos(proposal.body), len(proposal.warnings),
+            len(proposal.critical),
         )
         return proposal
 
@@ -245,6 +250,17 @@ class Assistant:
             raise
         self._record("discarded", proposal_id=proposal_id, owner=owner)
         log.info("proposal id=%s discarded", proposal_id)
+
+    def confirm_commitments(self, proposal_id: str, content_hash: str, owner: str) -> None:
+        """Explicit second confirmation for flagged commitments, bound to id and content hash."""
+        try:
+            proposal = self._gate.confirm_commitments(proposal_id, content_hash, owner)
+        except ApprovalError as exc:
+            self._record("refused", proposal_id=proposal_id, owner=owner, reason=exc.code)
+            raise
+        self._record("commitments_confirmed", proposal_id=proposal_id, owner=owner,
+                     content_hash=proposal.content_hash[:16], critical=len(proposal.critical))
+        log.info("proposal id=%s commitments confirmed", proposal_id)
 
     async def save(self, proposal: DraftProposal, owner: str = "cli", force: bool = False) -> SavedDraft:
         return await self.save_approved(proposal.id, proposal.content_hash, owner, force=force)

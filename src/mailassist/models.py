@@ -74,6 +74,8 @@ class DraftProposal:
     model: str
     message_id: str = ""
     warnings: tuple[str, ...] = ()
+    # Unbacked business commitments: saving needs an extra, hash-bound confirmation.
+    critical: tuple[str, ...] = ()
     id: str = field(default_factory=lambda: secrets.token_hex(6))
 
     @property

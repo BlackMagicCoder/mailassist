@@ -74,3 +74,110 @@ def unsupported_claims(draft: str, sources: list[str], trusted_sources: list[str
 
     unique = list(dict.fromkeys(findings))
     return [f"Bitte prüfen: „{item}“ ist durch Mail, Verlauf, Anweisung oder Firmeninfos nicht belegt." for item in unique]
+
+
+# --- business commitments ---------------------------------------------------------
+#
+# Word-level promises ("kostenlos", "wir erstatten") carry no number the check above
+# could catch. Each draft clause is matched against a small keyword list per kind of
+# commitment and then compared with clauses of the same kind in the owner's texts or
+# approved facts - never in the mail: a customer claiming a promise is no evidence.
+# Keyword rules, not semantics: quotes, questions and negated clauses are skipped,
+# everything else that is not clearly backed is reported.
+
+COMMITMENTS: dict[str, re.Pattern[str]] = {
+    name: re.compile(pattern, re.IGNORECASE)
+    for name, pattern in {
+        "Kostenfreiheit": r"kostenlos|kostenfrei|gratis|umsonst|unentgeltlich|ohne\s+(?:Berechnung|Aufpreis|Gebühr|(?:zusätzliche\s+)?Kosten)"
+                          r"|frei\s+Haus|(?:versand|liefer)\w*\b[^,;]*?\bfrei\b|free\s+of\s+charge|for\s+free|at\s+no\s+(?:extra\s+|additional\s+)?(?:cost|charge)",
+        "Rabatt": r"\w*rabatt|\w*nachlass|skonto|sonderpreis|sonderkondition|discount",
+        "Erstattung": r"\w*erstatt|zurückzahl|refund|reimburs|money\s+back",
+        "Gutschrift/Kulanz": r"gutschrift|gutschreib|gutgeschrieben|kulanz|credit\s+note",
+        "Garantie": r"\w*garanti|guarante",
+        "Liefer-/Terminzusage": r"(?<!un)verbindlich\w*\s+(?:zu|bestätig|fest)|verbindlich\w*\s+\w*(?:liefer|termin)"
+                                r"|(?:liefer|termin)\w*[^,;]*?(?<!un)verbindlich|zusag|zugesagt|zusicher|zugesichert|spätestens|binding|\bpromise"
+                                r"|(?:liefer|versand|versend|verschick|zustell|\bdeliver|\bship)\w*\b[^,;]*?\b(?:heute|morgen|übermorgen"
+                                r"|montag|dienstag|mittwoch|donnerstag|freitag|samstag|innerhalb|bis\s+(?:zum|ende|\d)|am\s+\d"
+                                r"|\d+\s*(?:bis\s*\d+\s*)?(?:werk)?(?:tag|woche)|today|tomorrow|within|by\s+\w+day)",
+    }.items()
+}
+_NEGATION = re.compile(r"\b(?:nicht(?!\s+nur)|kein\w*|weder|keinesfalls|ausgeschlossen|not|no|cannot|can't|unable|never)\b", re.IGNORECASE)
+_QUOTED = re.compile(r"„[^“”\n]*[“”]|“[^”\n]*”|\"[^\"\n]*\"|»[^«\n]*«|^>.*$", re.MULTILINE)
+_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+_CLAUSE = re.compile(r"[,;]|\s(?:aber|jedoch|sondern|und|but|and)\s", re.IGNORECASE)
+_CODE = re.compile(r"\b[A-Za-z]+[-‑]\d+\b")  # product codes like FB-200 are no figures
+_TIME_WORD = re.compile(r"\b(?:heute|morgen|übermorgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|today|tomorrow)\b",
+                        re.IGNORECASE)
+
+
+def _clauses(text: str) -> list[tuple[str, str]]:
+    """(clause, its sentence) for clauses that state something: no quotes, questions or negations.
+    Negations count per clause, conditions ("…, da der Warenwert über 500 € liegt") per sentence."""
+    text = _QUOTED.sub(" ", TODO_PATTERN.sub(" ", text))
+    out = []
+    for sentence in _SENTENCE.split(text):
+        if sentence.rstrip().endswith("?"):
+            continue
+        out += [(c.strip(" -*•\t"), sentence) for c in _CLAUSE.split(sentence)
+                if c.strip(" -*•\t") and not _NEGATION.search(c)]
+    return out
+
+
+def _figures(clause: str, ignore: set[str] = frozenset()) -> set[str]:
+    """Percentages, other numbers and day words of a clause, comparable across texts."""
+    clause = _CODE.sub(" ", clause)
+    found: set[str] = set()
+    for token in PERCENT.findall(clause):
+        found |= {"%" + key for key in _number_keys(token)}
+    for token in NUMBER.findall(PERCENT.sub(" ", clause)):
+        keys = _number_keys(token)
+        if not keys & ignore:
+            found |= keys
+    return found | {w.casefold() for w in _TIME_WORD.findall(clause)}
+
+
+def commitment_warnings(draft: str, owner_texts: list[str], facts: str, mail: list[str]) -> tuple[list[str], list[str]]:
+    """(critical, hints) for business commitments in the draft.
+
+    Critical: no clause of that kind in the owner's instruction or the approved facts,
+    or a figure (percent, number, day) that none of them contains. Hints: the kind is
+    approved, but the draft's wording cannot be matched exactly - the approved text is
+    quoted for comparison. Silent only if an approved clause states the same figures.
+    Plain numbers found in the mail or the approved texts (quantities, list prices) are no
+    deviation - the number check covers them; percentages and day words are."""
+    facts = re.sub(r"^## .*$", " ", facts, flags=re.MULTILINE)
+    plain: set[str] = set()
+    for token in NUMBER.findall(PERCENT.sub(" ", "\n".join([*mail, *owner_texts, facts]))):
+        plain |= _number_keys(token)
+    owner = [c for c, _ in _clauses("\n".join(t for t in owner_texts if t))]
+    approved = [c for c, _ in _clauses(facts)]
+
+    critical: list[str] = []
+    hints: list[str] = []
+    for clause, sentence in _clauses(draft):
+        for kind, pattern in COMMITMENTS.items():
+            if not pattern.search(clause):
+                continue
+            stated, unexplained = _figures(sentence), _figures(clause, plain)
+            by_owner = [_figures(c) for c in owner if pattern.search(c)]
+            by_facts = [(c, _figures(c)) for c in approved if pattern.search(c)]
+            known = set().union(*by_owner, *(f for _, f in by_facts))
+            words = set(re.findall(r"\w{4,}", clause.casefold()))
+            closest = sorted(by_facts, key=lambda cf: -len(words & set(re.findall(r"\w{4,}", cf[0].casefold()))))
+            approved_text = " / ".join(f"„{c}“" for c, _ in closest[:2])
+            if not by_owner and not by_facts:
+                critical.append(f"Zusage ohne Freigabe ({kind}): „{clause}“ – weder deine Anweisung noch die "
+                                "freigegebenen Firmeninfos enthalten so etwas.")
+            elif not unexplained <= known:
+                extra = ", ".join(f"{k[1:]} %" if k.startswith("%") else k for k in sorted(unexplained - known))
+                critical.append(f"Zusage weicht ab ({kind}): „{clause}“ – {extra} steht so in keiner Freigabe.")
+            elif not by_owner and all(f for _, f in by_facts) and not any(f & stated for _, f in by_facts):
+                # e.g. "Lieferung kostenlos" where only "Versand frei ab 500 €" is approved
+                critical.append(f"Zusage ohne die freigegebene Bedingung ({kind}): „{clause}“ – freigegeben ist nur: "
+                                f"{approved_text}")
+            elif not by_owner and not any(f and f <= stated and unexplained <= f for _, f in by_facts):
+                hints.append(f"Zusage prüfen ({kind}): „{clause}“ – freigegeben ist nur: {approved_text}")
+            else:
+                continue
+            break  # one finding per clause is enough for the reviewer
+    return list(dict.fromkeys(critical)), list(dict.fromkeys(hints))

@@ -18,6 +18,7 @@ Testdaten: `src/mailassist/demo_data/beispiel_gmbh.toml` – 21 synthetische B2B
 | Wissensbasis | nur freigegebene, gültige Einträge; abgelaufen/ohne Freigabe erreichen das Modell nie | `test_knowledge_checks.py::test_demo_knowledge_*`, `test_propose_uses_knowledge_*` |
 | Prompt Injection – Struktur | Tag-Ausbruch, Unicode-Doppelgänger, gefälschter Owner-Absender, versteckter HTML-Text | `test_corpus.py::test_injection_cannot_break_prompt_structure`, `test_hardening.py::test_owner_detection_*`, `test_lookalike_*` |
 | Prompt Injection – Ausgabe | eingeschleuste Links, Adressen, Prozent-Zusagen im Entwurf → Warnung | `test_corpus.py::test_compromised_draft_markers_are_flagged` |
+| Unbelegte Zusagen | Rabatt, kostenlos, Erstattung, Garantie, Liefertermin ohne Freigabe → KRITISCH; durch gültige Wissensbasis/Anweisung gedeckt → still; Kundenbehauptung kein Beleg; Verneinung, Frage, Zitat → keine Zusage; abgelaufen/nicht freigegeben deckt nichts; Injection „alles kostenlos“; Speichern nur nach zweiter, hash-gebundener Bestätigung (Gate, CLI, Telegram, Protokoll) | `test_commitments.py` |
 | Modellfehler | Timeout, 429/5xx mit Wiederholung, 401, abgeschnitten, leer, kein JSON | `test_corpus.py::test_model_failure_never_leads_to_a_saved_draft`, `test_connector_llm.py::test_retries_*`, `test_hardening.py::test_truncated_*` |
 | Unerlaubte Aktionen | Fallen-Werkzeuge `send_email`/`save_draft`, fremde Telegram-ID, Knopf unter altem Entwurf, Doppeltipp, Hash-Abweichung, zweiter Entwurf zur selben Mail, kein automatisches Wiederholen beim Speichern | `test_mail_protocol.py`, `test_units.py::test_gate_*`, `test_hardening.py::test_button_*`, `test_double_tap_*`, `test_failed_save_*`, `test_audit.py::test_second_draft_*` |
 | IMAP-Connector (T-Online & Co.) | nur schreibgeschützt öffnen, nur `BODY.PEEK`, Fallen `store`/`expunge`/`copy`/`move`/`delete` nie aufgerufen, `APPEND` nur in Entwürfe mit `\Draft`, Antwort-Kopfzeilen, eigene Adresse nie Empfänger, Verlauf aus Posteingang + Gesendet, UTF-7-Ordnernamen, Anmelde-/Verbindungsfehler, kein SMTP im Code | `test_imap.py` (gegen `tests/fake_imap.py`); optional gegen einen echten Test-Mailserver: `MAILASSIST_IMAP_TEST_SERVER` |
@@ -28,7 +29,7 @@ Testdaten: `src/mailassist/demo_data/beispiel_gmbh.toml` – 21 synthetische B2B
 ## Bekannte Grenzen der deterministischen Prüfung
 
 - **Zahlen ohne Kontext:** Eine Zahl gilt als belegt, wenn sie irgendwo in Mail, Verlauf, Anweisung oder Firmeninfos vorkommt. „Lieferung in 2 Tagen“ fällt nicht auf, wenn „2 Werktage“ in den Firmeninfos steht (in Tests ausdrücklich dokumentiert).
-- **Wort-Zusagen** wie „kostenlos“ oder „gratis“ erkennt die Prüfung nicht. Dagegen helfen nur die Prompt-Regeln, die Live-Evaluierung und die menschliche Freigabe.
+- **Zusagen nach Stichwort:** Kostenfreiheit, Rabatt, Erstattung, Gutschrift/Kulanz, Garantie und Liefer-/Terminzusagen werden über Wortlisten erkannt (`checks.py::COMMITMENTS`). Umschreibungen ohne Stichwort fallen nicht auf; indirekte Rede kann fälschlich als Zusage gelten. Dass eine Firmeninfo dasselbe Stichwort enthält, ist kein Beleg: still bleibt es nur, wenn eine freigegebene Aussage dieselben Prozente/Zahlen/Tage nennt, sonst gibt es einen Hinweis mit dem freigegebenen Wortlaut.
 - Ob das echte Modell Manipulationen widersteht, zeigt nur die Live-Evaluierung.
 
 ## Live-Evaluierung
@@ -37,4 +38,4 @@ Testdaten: `src/mailassist/demo_data/beispiel_gmbh.toml` – 21 synthetische B2B
 MAILASSIST_LIVE=1 BEDROCK_API_KEY=... uv run pytest -m live -s
 ```
 
-Sendet ausschließlich die synthetischen Korpus-Mails an Bedrock (Kosten: zwei Modellaufrufe je Mail). Harte Prüfungen: gültiges Schema, kein Manipulations-Marker (Link, Adresse, Prozent-Zusage) im Entwurf ohne Warnung. Kennzahlen (Trefferquote je Kategorie, erkannte Manipulationen, belegte Fakten) landen in `data/eval-report.json`.
+Sendet ausschließlich die synthetischen Korpus-Mails an Bedrock (Kosten: zwei Modellaufrufe je Mail). Harte Prüfungen: gültiges Schema, kein Manipulations-Marker (Link, Adresse, Prozent-Zusage, „kostenlos“/„gratis“) im Entwurf ohne Warnung; `drafts_needing_confirmation` zählt Entwürfe mit KRITISCH-Zusagen. Kennzahlen (Trefferquote je Kategorie, erkannte Manipulationen, belegte Fakten) landen in `data/eval-report.json`.

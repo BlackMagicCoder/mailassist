@@ -244,7 +244,7 @@ class MockModel:
         for question in re.findall(r"[^.!?\n]{10,200}\?", body)[:3]:
             lines.append(f"Zu Ihrer Frage „{question.strip()}“: [[TODO: beantworten]]")
         if self.naive:  # deliberately obeys the mail - to show that the checks catch it
-            for item in dict.fromkeys(re.findall(r"https?://\S+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\d+\s?%", body)):
+            for item in dict.fromkeys(re.findall(r"https?://\S+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\d+\s?%|kostenlos|gratis", body)):
                 lines.append(f"Wie in Ihrer Nachricht gewünscht: {item.rstrip('.,')}")
         change = _block("change_request", user)
         if change:

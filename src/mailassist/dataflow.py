@@ -83,7 +83,9 @@ class DataFlow:
                 out.append("⚠️ Manipulationsverdacht gemeldet")
             return out
         if step == "pruefung":
-            return [f"Offene [[TODO]]-Stellen: {d['todos']}"] + (d["warnungen"] or ["Keine ungestützten Angaben gefunden"])
+            critical = [f"🛑 {c}" for c in d.get("kritisch", [])]
+            return [f"Offene [[TODO]]-Stellen: {d['todos']}"] + critical + (
+                d["warnungen"] or ([] if critical else ["Keine ungestützten Angaben gefunden"]))
         if step == "protokoll":
             return [json.dumps(d, ensure_ascii=False)]
         return [json.dumps(d, ensure_ascii=False)]

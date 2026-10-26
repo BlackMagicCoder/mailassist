@@ -22,6 +22,13 @@ class ApprovalError(AssistantError):
         self.code = code
 
 
+class CommitmentConfirmationError(ApprovalError):
+    """The draft contains unbacked business commitments; the owner must confirm them explicitly first."""
+
+    def __init__(self, message: str):
+        super().__init__(message, code="unconfirmed_commitment")
+
+
 class DuplicateDraftError(ApprovalError):
     """A draft for this message was saved before; saving again needs explicit confirmation."""
 
@@ -35,6 +42,7 @@ class _Ticket:
     proposal: DraftProposal
     owner: str
     state: str = "pending"  # pending | saving | saved | failed | superseded | discarded
+    commitments_confirmed: bool = False
 
 
 _REFUSALS = {
@@ -70,11 +78,26 @@ class ApprovalGate:
         """The proposal, if it is still the owner's open one (for revisions)."""
         return self._open_ticket(proposal_id, owner).proposal
 
-    def verify(self, proposal_id: str, content_hash: str, owner: str) -> DraftProposal:
-        """All approval checks, without changing state."""
+    def _matching_ticket(self, proposal_id: str, content_hash: str, owner: str) -> _Ticket:
         ticket = self._open_ticket(proposal_id, owner)
         if len(content_hash) < MIN_HASH_PREFIX or not ticket.proposal.content_hash.startswith(content_hash):
             raise ApprovalError("Freigabe passt nicht zum Entwurfsinhalt. Nichts gespeichert.", code="hash_mismatch")
+        return ticket
+
+    def verify(self, proposal_id: str, content_hash: str, owner: str) -> DraftProposal:
+        """All approval checks, without changing state."""
+        ticket = self._matching_ticket(proposal_id, content_hash, owner)
+        if ticket.proposal.critical and not ticket.commitments_confirmed:
+            raise CommitmentConfirmationError(
+                f"Der Entwurf enthält {len(ticket.proposal.critical)} nicht freigegebene Zusage(n). "
+                "Speichern erst nach ausdrücklicher Bestätigung."
+            )
+        return ticket.proposal
+
+    def confirm_commitments(self, proposal_id: str, content_hash: str, owner: str) -> DraftProposal:
+        """The owner accepts the flagged commitments of exactly this text (same id and hash rules as saving)."""
+        ticket = self._matching_ticket(proposal_id, content_hash, owner)
+        ticket.commitments_confirmed = True
         return ticket.proposal
 
     def begin(self, proposal_id: str, content_hash: str, owner: str) -> DraftProposal:
