@@ -21,7 +21,7 @@ from .logs import setup_logging
 from .models import EmailSummary, MessageRef
 from .triage import format_triage
 
-PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an Amazon Bedrock (Claude) übertragen."
+PRIVACY_NOTE = "Hinweis: Der Inhalt dieser Unterhaltung wird zur Entwurfserstellung an Amazon Bedrock (AWS) übertragen."
 MOCK_NOTE = (
     "MOCK: echtes Postfach, aber lokales Regel-Modell ohne KI – Mailinhalte gehen an kein Sprachmodell. "
     "Gespeicherte Entwürfe landen wirklich im Entwürfe-Ordner (nur Platzhaltertext)."

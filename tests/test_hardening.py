@@ -126,7 +126,7 @@ def _client(response: httpx.Response) -> BedrockClient:
 
 
 async def test_truncated_answer_is_rejected():
-    body = {"stop_reason": "max_tokens", "content": [{"type": "text", "text": "Gerne bestätigen wir Ihnen den"}]}
+    body = {"stopReason": "max_tokens", "output": {"message": {"content": [{"text": "Gerne bestätigen wir Ihnen den"}]}}}
     with pytest.raises(LLMError, match="abgeschnitten"):
         await _client(httpx.Response(200, json=body)).complete("s", "u")
 

@@ -12,7 +12,7 @@ Du (Telegram oder Terminal)
       ├── Analyse: Kategorie, Fakten mit Belegstelle, offene Fragen, nächste Schritte (nur Vorschläge)
       ├── Entwurf: nur aus Mail, Verlauf, deiner Anweisung und der freigegebenen Wissensbasis
       ├── Prüfung: ungestützte Zahlen, Links, Adressen, Prozent-Zusagen → Warnung vor der Freigabe
-      └──────► Amazon Bedrock (Frankfurt) ──► Claude Sonnet   (erhält nur die gewählte Unterhaltung, keine Werkzeuge)
+      └──────► Amazon Bedrock (Frankfurt) ──► gpt-oss-120b   (erhält nur die gewählte Unterhaltung, keine Werkzeuge)
 ```
 
 ## Architektur
@@ -21,7 +21,7 @@ Du (Telegram oder Terminal)
 |---|---|---|
 | E-Mail-Connector | `mail.py`, `imap.py`, `demo.py` | Proton über Baryon MCP (Werkzeug-Allowlist) · beliebiges IMAP-Postfach wie T-Online (Befehls-Wächter: nur lesen, Entwürfe ablegen) · Demo-Postfach mit synthetischen Mails |
 | Prozesslogik | `core.py`, `triage.py`, `knowledge.py`, `checks.py`, `prompt.py` | Lesen → Einordnen → Entwurf → Prüfen; Mailinhalt gilt als nicht vertrauenswürdig |
-| LLM-Adapter | `llm.py` | Claude auf Amazon Bedrock (InvokeModel, Bedrock-API-Schlüssel), Wiederholung bei Störungen, JSON-Modus mit Validierung |
+| LLM-Adapter | `llm.py` | Amazon Bedrock Converse-API (Standard: OpenAI gpt-oss-120b in Frankfurt, Bedrock-API-Schlüssel), Wiederholung bei Störungen, JSON-Modus mit Validierung |
 | Freigabe | `approval.py`, `audit.py` | Freigabe an Entwurf + Inhalts-Hash gebunden, Duplikat-Erkennung, Prüfprotokoll ohne Inhalte |
 | Oberflächen | `cli.py`, `telegram_bot.py`, `dataflow.py` | dünne Schichten über dem Kern; Datenfluss-Ansicht |
 
@@ -59,7 +59,7 @@ uv run mailassist --demo bot                                # Telegram-Demo (bra
 
 ## Datenschutz – bitte lesen
 
-- **Der Inhalt der gewählten Unterhaltung wird an Amazon Bedrock (AWS) übertragen und dort von Claude verarbeitet** – für die Analyse und für jeden Entwurf. Standard ist die Region Frankfurt mit EU-Inferenzprofil (Anfragen bleiben in EU-Regionen). Übertragen werden: die ausgewählte Mail, die bisherigen Nachrichten dieser Unterhaltung (gekürzt, max. ca. 40 000 Zeichen), deine Anweisung und passende Einträge der Wissensbasis. Andere Mails verlassen den Server nicht. Laut [AWS-Dokumentation](https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html) haben Modellanbieter wie Anthropic keinen Zugriff auf Prompts und Antworten; prüfe die AWS-Bedingungen selbst, bevor du vertrauliche Mails verarbeitest.
+- **Der Inhalt der gewählten Unterhaltung wird an Amazon Bedrock (AWS) übertragen und dort vom Modell gpt-oss-120b verarbeitet** – für die Analyse und für jeden Entwurf. Standard ist die Region Frankfurt (`eu-central-1`); die Anfragen verlassen diese Region nicht. Übertragen werden: die ausgewählte Mail, die bisherigen Nachrichten dieser Unterhaltung (gekürzt, max. ca. 40 000 Zeichen), deine Anweisung und passende Einträge der Wissensbasis. Andere Mails verlassen den Server nicht. Laut [AWS-Dokumentation](https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html) haben Modellanbieter (hier OpenAI) keinen Zugriff auf Prompts und Antworten; prüfe die AWS-Bedingungen selbst, bevor du vertrauliche Mails verarbeitest.
 - **Telegram-Bot-Chats sind nicht Ende-zu-Ende-verschlüsselt.** Im Bot-Modus liegen Absender, Betreffzeilen, Analyse und Entwurfstexte auch bei Telegram. Fehlermeldungen an Telegram enthalten nie Server- oder Mailtexte.
 - **Gemieteter Server:** Bridge entschlüsselt dein Postfach auf dem Server. Wer den Server kontrolliert (auch der Hoster), kann technisch darauf zugreifen.
 - **Logs** enthalten nur IDs, Zählwerte und den Modellnamen – keine Mailinhalte. Schlüssel werden zusätzlich automatisch geschwärzt, auch in Tracebacks.
@@ -96,7 +96,7 @@ Unterschiede zu Proton: Es gibt keinen Ordner „All Mail“ – gesucht wird im
 - Proton-Konto mit Zugang zu **Proton Mail Bridge** (Bridge ist nach unserem Kenntnisstand kostenpflichtigen Tarifen vorbehalten – bitte prüfen)
 - **Baryon MCP** v0.6.3 (<https://github.com/combor/baryon-mcp>)
 - **uv** (<https://docs.astral.sh/uv/>), Python 3.12 wird von uv bereitgestellt
-- **Amazon-Bedrock-API-Schlüssel** (AWS-Konsole → Amazon Bedrock → *API keys*); Claude Sonnet muss im AWS-Konto aufrufbar sein – `uv run mailassist check --llm` zeigt es
+- **Amazon-Bedrock-API-Schlüssel** (AWS-Konsole → Amazon Bedrock → *API keys*); `uv run mailassist check --llm` zeigt, ob das Modell aufrufbar ist
 - für Telegram: ein Bot-Token von **@BotFather**
 
 ## Installation auf dem Server (Linux-VPS, empfohlen: Debian 12 / Ubuntu 24.04)
@@ -239,7 +239,7 @@ Erster Schritt immer: `uv run mailassist check --llm --telegram`.
 | Fehler zu Zertifikat / TLS | Bridge-Zertifikat hat sich geändert: `baryon-mcp setup` erneut ausführen. |
 | Fehler zu Zugangsdaten | Bridge-Passwort geändert: `baryon-mcp setup --reset-credentials`. |
 | `Bedrock antwortete mit HTTP 401/403` | API-Schlüssel falsch oder abgelaufen (`.env` prüfen; Bedrock-Schlüssel haben ein Ablaufdatum). Steht unter „Details“ *not available for this account*, ist das Modell für dein AWS-Konto nicht freigeschaltet – anderes Modell in `MAILASSIST_MODEL` oder Zugang bei AWS anfragen. |
-| `Bedrock antwortete mit HTTP 400` / `404` | Modell-ID passt nicht zur Region (`eu.…` nur mit `eu-*`-Region) bzw. Anthropic-Formular noch nicht eingereicht: Bedrock-Konsole → *Model catalog* → Claude-Modell wählen → Formular ausfüllen. |
+| `Bedrock antwortete mit HTTP 400` / `404` | Modell-ID gibt es in dieser Region nicht (`MAILASSIST_MODEL` und `BEDROCK_REGION` prüfen; Profile mit `eu.`/`us.`-Präfix passen nur zur gleichnamigen Region). Für Claude-Modelle verlangt AWS zusätzlich ein Anthropic-Formular in der Bedrock-Konsole. |
 | `HTTP 429` | Zu viele Anfragen (Kontingent im AWS-Konto). Bei 429 und 5xx versucht mailassist es automatisch bis zu zweimal erneut. |
 | `Modellantwort wurde abgeschnitten` | `MAILASSIST_MAX_TOKENS` erhöhen oder die Anweisung kürzen. |
 | `Speichern fehlgeschlagen … könnte trotzdem angelegt worden sein` | Im Entwürfe-Ordner nachsehen, bevor du erneut speicherst. |

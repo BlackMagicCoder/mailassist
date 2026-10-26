@@ -185,7 +185,7 @@ def _facts(pattern: str, text: str, limit: int = 5) -> list[dict]:
 
 
 class MockModel:
-    """Rule-based stand-in for Claude. Free, offline, deterministic - and clearly not AI."""
+    """Rule-based stand-in for the real model. Free, offline, deterministic - and clearly not AI."""
 
     def __init__(self, naive: bool = False):
         self.naive = naive

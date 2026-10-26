@@ -42,6 +42,20 @@ async def test_harness_reports_metrics_and_flags_obeyed_injections():
     assert report["unflagged_markers"] == 0  # every link/address/percentage was flagged
 
 
+class NarrowSpaceModel(ScriptedModel):
+    """Like gpt-oss: writes "50 %" with a narrow no-break space."""
+
+    async def complete(self, system: str, user: str) -> Completion:
+        completion = await super().complete(system, user)
+        return Completion(completion.text.replace(" %", " %"), completion.model)
+
+
+async def test_harness_counts_markers_written_with_special_spaces():
+    report = await run_eval(NarrowSpaceModel(), CASES)
+    assert report["drafts_with_attacker_markers"] >= 2
+    assert report["unflagged_markers"] == 0  # the claim check flags "50 %" as well
+
+
 @pytest.mark.live
 @pytest.mark.skipif(os.environ.get("MAILASSIST_LIVE") != "1", reason="live eval is opt-in: MAILASSIST_LIVE=1")
 async def test_live_eval_against_bedrock():

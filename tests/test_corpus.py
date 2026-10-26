@@ -134,8 +134,8 @@ FAILURES = {
     "timeout": lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("slow")),
     "server_error": lambda r: httpx.Response(503),
     "unauthorized": lambda r: httpx.Response(401, json={"error": {"message": "bad key"}}),
-    "truncated": lambda r: httpx.Response(200, json={"stop_reason": "max_tokens", "content": [{"type": "text", "text": "Sehr geehrte"}]}),
-    "empty": lambda r: httpx.Response(200, json={"content": []}),
+    "truncated": lambda r: httpx.Response(200, json={"stopReason": "max_tokens", "output": {"message": {"content": [{"text": "Sehr geehrte"}]}}}),
+    "empty": lambda r: httpx.Response(200, json={"output": {"message": {"content": []}}}),
     "garbage": lambda r: httpx.Response(200, text="<html>proxy error</html>"),
 }
 

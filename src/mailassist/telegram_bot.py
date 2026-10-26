@@ -41,7 +41,7 @@ HELP = (
     "/suche TEXT – Postfach durchsuchen\n"
     "Dann eine Nachricht antippen und schreiben, was die Antwort sagen soll, z. B. „freundliche Absage“.\n\n"
     "Ich speichere Entwürfe nur auf deinen Knopfdruck und sende nie selbst. "
-    "Der Inhalt der gewählten Unterhaltung wird dafür an Amazon Bedrock (Claude) übertragen."
+    "Der Inhalt der gewählten Unterhaltung wird dafür an Amazon Bedrock (AWS) übertragen."
 )
 
 
@@ -52,7 +52,7 @@ def help_text(settings: Settings) -> str:
     elif settings.use_mock:
         where = "MOCK: echtes Postfach, aber lokales Regel-Modell ohne KI – Mailinhalte gehen an kein Sprachmodell."
     else:
-        where = "Der Inhalt der gewählten Unterhaltung wird dafür an Amazon Bedrock (Claude) übertragen."
+        where = "Der Inhalt der gewählten Unterhaltung wird dafür an Amazon Bedrock (AWS) übertragen."
     return HELP.rsplit("Der Inhalt", 1)[0] + where
 
 

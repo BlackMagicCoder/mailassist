@@ -1,7 +1,7 @@
 [project]
 name = "mailassist"
 version = "0.1.0"
-description = "KI-Antwortentwürfe für Proton Mail über Baryon MCP oder IMAP und Claude auf Amazon Bedrock – sendet nie selbst"
+description = "KI-Antwortentwürfe für Proton Mail über Baryon MCP oder IMAP und einem Sprachmodell auf Amazon Bedrock – sendet nie selbst"
 authors = [
     { name = "Kira Bouschen", email = "kira.bouschen@gmail.com" }
 ]

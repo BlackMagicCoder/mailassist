@@ -1,6 +1,8 @@
-"""LLM adapter: Claude Sonnet on Amazon Bedrock (InvokeModel, Anthropic message format).
+"""LLM adapter: Amazon Bedrock Converse API (default model: OpenAI gpt-oss-120b in Frankfurt).
 
-Authenticates with a Bedrock API key (bearer token), so no AWS SDK is needed.
+Converse has one request/response shape for every Bedrock model, so changing
+MAILASSIST_MODEL needs no code change. Authenticates with a Bedrock API key
+(bearer token), so no AWS SDK is needed.
 
 The model is called without tools: it can only return text. Transient failures
 (timeouts, connection errors, 429, 5xx) are retried; model calls have no side
@@ -34,7 +36,7 @@ _STATUS_HINTS = {
     400: "Modell-ID und Region prüfen",
     401: "API-Schlüssel prüfen",
     403: "API-Schlüssel oder Modellzugang im AWS-Konto prüfen",
-    404: "Modell-ID prüfen oder Anthropic-Formular in der Bedrock-Konsole einreichen",
+    404: "Modell-ID prüfen (gibt es das Modell in dieser Region?)",
     429: "zu viele Anfragen, später erneut versuchen",
 }
 RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
@@ -58,7 +60,7 @@ class BedrockClient:
         model: str,
         region: str,
         base_url: str | None = None,
-        max_tokens: int = 2000,
+        max_tokens: int = 4000,
         timeout: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
         max_retries: int = 2,
@@ -68,7 +70,7 @@ class BedrockClient:
         self._api_key = api_key
         self._model = model
         base = (base_url or f"https://bedrock-runtime.{region}.amazonaws.com").rstrip("/")
-        self._url = f"{base}/model/{quote(model, safe='')}/invoke"
+        self._url = f"{base}/model/{quote(model, safe='')}/converse"
         self._max_tokens = max_tokens
         self._timeout = timeout
         self._transport = transport
@@ -96,12 +98,11 @@ class BedrockClient:
             await self._sleep(delay)
 
     async def complete(self, system: str, user: str) -> Completion:
-        # The model is part of the URL; Bedrock requires its own anthropic_version value.
+        # The model is part of the URL; no toolConfig is ever sent.
         payload = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": self._max_tokens,
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
+            "system": [{"text": system}],
+            "messages": [{"role": "user", "content": [{"text": user}]}],
+            "inferenceConfig": {"maxTokens": self._max_tokens},
         }
         response = await self._post(payload)
         if response.status_code != 200:
@@ -110,20 +111,20 @@ class BedrockClient:
             raise LLMError(f"Bedrock antwortete mit HTTP {code} ({hint}).", detail=_error_message(response))
         try:
             data = response.json()
-            blocks = data.get("content") or []
-            text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
-        except (ValueError, AttributeError):
+            blocks = data["output"]["message"]["content"] or []
+            # Reasoning models (gpt-oss) also return reasoningContent blocks; only the answer text counts.
+            text = "".join(b.get("text", "") for b in blocks if "text" in b).strip()
+        except (ValueError, AttributeError, KeyError, TypeError):
             raise LLMError("Bedrock lieferte eine unlesbare Antwort.") from None
-        if data.get("stop_reason") == "max_tokens":
+        if data.get("stopReason") == "max_tokens":
             raise LLMError(
                 "Die Modellantwort wurde abgeschnitten (Längenlimit erreicht). "
                 "MAILASSIST_MAX_TOKENS erhöhen oder die Anweisung kürzen."
             )
         if not text:
             raise LLMError("Bedrock lieferte keinen Text.")
-        model = data.get("model") or self._model
-        log.info("llm ok model=%s in_chars=%d out_chars=%d", model, len(system) + len(user), len(text))
-        return Completion(text=text, model=model)
+        log.info("llm ok model=%s in_chars=%d out_chars=%d", self._model, len(system) + len(user), len(text))
+        return Completion(text=text, model=self._model)
 
 
 def _retry_after(response: httpx.Response) -> float | None:
@@ -136,7 +137,7 @@ def _retry_after(response: httpx.Response) -> float | None:
 def _error_message(response: httpx.Response) -> str:
     try:
         data = response.json()
-        error = data.get("error") or data.get("message")  # Anthropic shape or Bedrock's {"message": ...}
+        error = data.get("error") or data.get("message")  # {"error": ...} or Bedrock's {"message": ...}
     except (ValueError, AttributeError):
         return "(keine Details)"
     if isinstance(error, dict):

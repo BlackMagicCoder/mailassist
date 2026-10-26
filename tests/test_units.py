@@ -50,7 +50,7 @@ def test_settings_parse_and_hide_secrets():
     s = Settings.from_env({"BEDROCK_API_KEY": KEY, "TELEGRAM_BOT_TOKEN": "123:TOKEN",
                            "TELEGRAM_ALLOWED_USER_IDS": "111, 222", "MAILASSIST_SIGNATURE": "Viele Grüße\\nKira"})
     assert s.telegram_allowed_user_ids == {111, 222}
-    assert s.model == "eu.anthropic.claude-sonnet-4-6" and s.bedrock_region == "eu-central-1"
+    assert s.model == "openai.gpt-oss-120b-1:0" and s.bedrock_region == "eu-central-1" and s.max_tokens == 4000
     assert s.signature == "Viele Grüße\nKira"
     assert KEY not in repr(s) and "TOKEN" not in repr(s)
 
@@ -101,17 +101,20 @@ async def test_llm_request_shape_and_no_tools():
         seen["url"] = str(request.url)
         seen["auth"] = request.headers["authorization"]
         seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={"model": "claude-sonnet-4-6",
-                                         "content": [{"type": "text", "text": "Hallo Anna"}]})
+        # gpt-oss returns its reasoning as a separate block; it must not end up in the draft
+        content = [{"reasoningContent": {"reasoningText": {"text": "interne Überlegung"}}}, {"text": "Hallo Anna"}]
+        return httpx.Response(200, json={"output": {"message": {"role": "assistant", "content": content}},
+                                         "stopReason": "end_turn"})
 
-    client = BedrockClient(KEY, "eu.anthropic.claude-sonnet-4-6", "eu-central-1", transport=httpx.MockTransport(handler))
+    client = BedrockClient(KEY, "openai.gpt-oss-120b-1:0", "eu-central-1", transport=httpx.MockTransport(handler))
     result = await client.complete("sys", "user")
-    assert result.text == "Hallo Anna" and result.model == "claude-sonnet-4-6"
-    assert seen["url"] == "https://bedrock-runtime.eu-central-1.amazonaws.com/model/eu.anthropic.claude-sonnet-4-6/invoke"
+    assert result.text == "Hallo Anna" and result.model == "openai.gpt-oss-120b-1:0"
+    assert seen["url"] == "https://bedrock-runtime.eu-central-1.amazonaws.com/model/openai.gpt-oss-120b-1%3A0/converse"
     assert seen["auth"] == f"Bearer {KEY}"
-    assert seen["body"]["anthropic_version"] == "bedrock-2023-05-31" and "model" not in seen["body"]
-    assert seen["body"]["system"] == "sys" and seen["body"]["messages"] == [{"role": "user", "content": "user"}]
-    assert "tools" not in seen["body"]
+    assert seen["body"]["system"] == [{"text": "sys"}]
+    assert seen["body"]["messages"] == [{"role": "user", "content": [{"text": "user"}]}]
+    assert seen["body"]["inferenceConfig"] == {"maxTokens": 4000}
+    assert "toolConfig" not in seen["body"] and "tools" not in seen["body"]
 
 
 def test_bedrock_settings_accept_aws_key_name_and_region():

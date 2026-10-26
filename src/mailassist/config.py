@@ -6,8 +6,9 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-# EU inference profile: requests stay within EU regions. Live-checked 2026-10-26 (us.* works too).
-DEFAULT_MODEL = "eu.anthropic.claude-sonnet-4-6"
+# Owner's choice 2026-10-26 after an eval of the account's callable models (Claude/GPT-5+ are account-gated).
+# On-demand in Frankfurt: requests stay in eu-central-1.
+DEFAULT_MODEL = "openai.gpt-oss-120b-1:0"
 DEFAULT_REGION = "eu-central-1"
 
 
@@ -28,7 +29,7 @@ class Settings:
     model: str = DEFAULT_MODEL
     bedrock_region: str = DEFAULT_REGION
     bedrock_base_url: str | None = None  # only for tests/local mocks; default is derived from the region
-    max_tokens: int = 2000
+    max_tokens: int = 4000  # reasoning tokens of gpt-oss count against this limit
     baryon_command: str = "baryon-mcp"
     inbox_folder: str = "INBOX"
     search_folder: str = "All Mail"
@@ -88,7 +89,7 @@ class Settings:
             key = "mock-ohne-schluessel"
         try:
             user_ids = frozenset(int(v) for v in _split(env.get("TELEGRAM_ALLOWED_USER_IDS")))
-            max_tokens = int(env.get("MAILASSIST_MAX_TOKENS", "2000"))
+            max_tokens = int(env.get("MAILASSIST_MAX_TOKENS", "4000"))
             imap_port = int(env.get("IMAP_PORT", "993"))
         except ValueError as exc:
             raise ConfigError(f"Ungültige Zahl in der Konfiguration: {exc}") from None

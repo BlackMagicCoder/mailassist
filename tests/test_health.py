@@ -21,7 +21,7 @@ def session_for(mail):
 
 
 async def test_all_green_shows_counts_but_no_content():
-    llm = SimpleNamespace(complete=AsyncMock(return_value=Completion("OK", "anthropic/claude-sonnet-x")))
+    llm = SimpleNamespace(complete=AsyncMock(return_value=Completion("OK", "openai.gpt-oss-120b-1:0")))
 
     async def probe():
         return "@mailassist_test_bot"

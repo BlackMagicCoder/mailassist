@@ -83,7 +83,7 @@ def scripted(*responses):
     return httpx.MockTransport(handler), calls
 
 
-OK = httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
+OK = httpx.Response(200, json={"output": {"message": {"content": [{"text": "ok"}]}}, "stopReason": "end_turn"})
 
 
 def client(transport, sleeps):
