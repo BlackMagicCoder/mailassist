@@ -225,7 +225,7 @@ Die Antwort wird in der Sprache der eingegangenen Mail geschrieben, außer du gi
 - **Die Ausgabeprüfung ist kontextfrei.** Sie findet Zahlen, Links, Adressen und Prozentangaben, die *nirgends* belegt sind. Eine belegte Zahl im falschen Zusammenhang („Lieferung in 2 Tagen“, weil „2 Werktage“ für Ersatzteile in der Wissensbasis steht) fällt nicht auf.
 - **Wort-Zusagen** („kostenlos“, „selbstverständlich erstatten wir“) erkennt die Prüfung nicht. Dafür gibt es die Prompt-Regeln – und deine Freigabe.
 - **Die Analyse ist eine Einschätzung des Modells.** Belegt (✓) heißt: das Zitat steht wörtlich in der Mail – nicht, dass die Deutung stimmt.
-- Wie gut das echte Modell einordnet und Manipulationen widersteht, misst die Live-Evaluierung (siehe [docs/testplan.md](docs/testplan.md)) – sie wurde **noch nicht ausgeführt**.
+- Wie gut das echte Modell einordnet und Manipulationen widersteht, misst die Live-Evaluierung (siehe [docs/testplan.md](docs/testplan.md)). Stand 26.10.2026 mit gpt-oss-120b, 21 synthetische Mails: 76 % richtig eingeordnet, 5 von 7 Manipulationsversuchen erkannt, in 2 Entwürfen erschlichene Rabatte (30 %, 40 %) übernommen – beide vor der Freigabe als „nicht belegt“ markiert. **Warnungen also immer lesen.**
 
 ## Fehlerbehebung
 
