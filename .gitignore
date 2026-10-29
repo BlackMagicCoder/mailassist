@@ -23,9 +23,11 @@ data/
 *.mbox
 *.msg
 
-# IDE (keep shared .idea config, drop per-user state)
-.idea/workspace.xml
-.idea/shelf/
+# IDE and local AI-assistant files (kept on disk, not published)
+.idea/
+.claude/
+CLAUDE.md
+LEARNINGS.md
 
 # Real company knowledge base (may be confidential); the demo lives in examples/knowledge
 /knowledge/
