@@ -1,4 +1,22 @@
-# mailassist – Inbox-to-Action Copilot für dein Postfach
+# mailassist – Inbox-to-Action Copilot für Ihr Postfach
+
+**Deutsch** · [English](README.en.md)
+
+## Wofür
+
+Für Vertrieb und Kundenservice in kleinen und mittleren Unternehmen, die täglich ähnliche Anfragen beantworten: Angebote, Liefertermine, Reklamationen, Rückfragen. mailassist nimmt die Routinearbeit ab, ohne die Kontrolle abzugeben:
+
+- **Einordnen statt lesen:** Kategorie, Dringlichkeit und die wichtigen Angaben der Mail (Menge, Artikel, Termin …) – jede Angabe mit der Textstelle, aus der sie stammt.
+- **Antwortentwurf aus Ihren eigenen Vorgaben:** Preise, Lieferzeiten und Konditionen kommen nur aus freigegebenen Firmeninfos. Fehlt etwas, steht dort `[[TODO: …]]` statt einer erfundenen Zahl.
+- **Der Mensch entscheidet:** Der Entwurf landet erst nach Freigabe im Entwürfe-Ordner. Senden kann mailassist technisch nicht.
+- **Schutz vor Fehlern:** Sagt ein Entwurf etwas zu, das niemand freigegeben hat – kostenlos, Rabatt, Erstattung, Garantie, Liefertermin –, lässt er sich nur nach einer zweiten, ausdrücklichen Bestätigung speichern. Mails, die das Modell zu solchen Zusagen überreden wollen, werden markiert.
+- **Daten in der EU:** Das Sprachmodell läuft über Amazon Bedrock in Frankfurt; nur die gewählte Unterhaltung wird übertragen.
+
+Nachweise: 210 automatische Tests (offline, nur synthetische Daten), zwei Live-Auswertungen mit 21 Test-Mails inkl. 7 Manipulationsversuchen und ein Abnahmetest mit einem echten GMX-Postfach (Details unter [Grenzen](#grenzen--bitte-kennen) und [Stand der Prüfung](#stand-der-prüfung)).
+
+Anbindung an das eigene Postfach und die eigenen Firmeninfos als Auftrag: [kbouschen.com](https://www.kbouschen.com)
+
+## So funktioniert es
 
 mailassist ordnet eine ausgewählte Geschäftsmail ein, extrahiert die relevanten Angaben strukturiert, schlägt nächste Schritte vor und schreibt einen Antwortentwurf auf Basis **freigegebener Unternehmensinformationen**. Der Entwurf wird erst nach deiner ausdrücklichen Freigabe im Entwürfe-Ordner deines Postfachs gespeichert. **Versenden tust immer du selbst.** Bedienung per Kommandozeile oder Telegram.
 
@@ -268,4 +286,5 @@ Testdaten sind ausschließlich synthetisch (`src/mailassist/demo_data/beispiel_g
 ### Stand der Prüfung
 
 - **Automatisch getestet (offline):** Werkzeug-Allowlist und MCP-Protokoll, vollständiger Verlauf über Ordner hinweg, validierte Baryon-Antworten, Freigabe-Bindung (veraltete Knöpfe, Doppeltipp, Hash, fremde Nutzer), Duplikat-Erkennung, Prüfprotokoll ohne Inhalte, Analyse mit Belegprüfung, Wissensbasis mit Freigabe/Ablauf, Ausgabeprüfung, 21 synthetische Mails inkl. 7 Manipulationsversuchen, Modellfehler (Timeout, 429/5xx, abgeschnitten, kein JSON), Schwärzung in Logs, CLI- und Bot-Abläufe.
-- **Noch nicht getestet** (braucht Bridge, Schlüssel und Token): echte Verbindung zu Proton Mail Bridge, echte Antworten über Bedrock in der Anwendung (inkl. Live-Evaluierung; bisher nur 1-Token-Erreichbarkeitstest), echter Telegram-Betrieb, Server-Installation. Ersten Live-Test bitte mit einer unkritischen Testmail machen.
+- **Live getestet:** Amazon Bedrock (gpt-oss-120b, Frankfurt) mit den 21 synthetischen Mails (zwei Läufe, Ergebnisse unter [Grenzen](#grenzen--bitte-kennen)); IMAP-Connector mit echtem Modell gegen ein GMX-Testpostfach (siehe [Stand](#mit-t-online-oder-einem-anderen-imap-postfach)).
+- **Noch nicht getestet:** echte Verbindung zu Proton Mail Bridge, T-Online-Server, echter Telegram-Betrieb, Server-Installation. Ersten Live-Test bitte mit einer unkritischen Testmail machen.
