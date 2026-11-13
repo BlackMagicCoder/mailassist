@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import sys
+import webbrowser
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ from dotenv import load_dotenv
 from .approval import DuplicateDraftError
 from .config import ConfigError, Settings
 from .core import Assistant, DraftProposal
+from . import showcase
 from .dataflow import DataFlow
 from .errors import AssistantError
 from .health import format_checks, run_checks
@@ -129,6 +131,7 @@ def _parser() -> argparse.ArgumentParser:
     antworte.add_argument("nummer", type=int)
     antworte.add_argument("--hinweis", help='z. B. "freundliche Absage"')
     antworte.add_argument("--sprache", help="Antwortsprache erzwingen, z. B. de oder en")
+    sub.add_parser("schaufenster", help="nur mit --demo: Demo-Szenarien als anschauliche Seite im Browser (für Präsentation und Screenshots)")
     sub.add_parser("bot", help="Telegram-Bot starten")
     check = sub.add_parser("check", help="Erreichbarkeit von Postfach, Bedrock und Telegram prüfen")
     check.add_argument("--llm", action="store_true", help="auch Bedrock prüfen (ein kleiner Modellaufruf)")
@@ -155,7 +158,21 @@ async def _check(args: argparse.Namespace, settings: Settings, assistant: Assist
         raise SystemExit(1)
 
 
+def _show(path: Path, what: str) -> None:
+    """Open a generated page in the browser and print a clickable link, so nobody has to look for the file."""
+    uri = path.resolve().as_uri()
+    try:
+        opened = webbrowser.open(uri)
+    except webbrowser.Error:
+        opened = False
+    print(f"\n{what} {'im Browser geöffnet' if opened else 'zum Öffnen anklicken'}: {uri}")
+
+
 async def _run(args: argparse.Namespace, settings: Settings) -> None:
+    if args.command == "schaufenster":
+        print("Spiele die Demo-Szenarien durch …")
+        _show(await showcase.write(settings, Path(settings.data_dir) / "schaufenster.html"), "Schaufenster")
+        return
     assistant = Assistant.from_settings(settings)
     demo = settings.connector == "demo"
     if args.command == "check":
@@ -186,7 +203,7 @@ async def _run(args: argparse.Namespace, settings: Settings) -> None:
             if flow is not None and flow.steps:
                 print(flow.summary())
                 report = flow.write_html(Path(settings.data_dir) / "datenfluss", f"{args.command} Nr. {args.nummer}")
-                print(f"HTML-Bericht mit dem vollständigen Wortlaut: {report.resolve()}")
+                _show(report, "Bericht mit dem vollständigen Wortlaut")
         return
     _store_results(settings, results)
     _print_results(results)
@@ -200,6 +217,8 @@ def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
     if args.naiv and not (args.demo or args.mock):
         raise SystemExit("--naiv gibt es nur zusammen mit --demo oder --mock.")
+    if args.command == "schaufenster" and not args.demo:
+        raise SystemExit("Das Schaufenster gibt es nur mit --demo: Es zeigt ausschließlich synthetische Mails.")
     if args.demo and args.mock:
         raise SystemExit("--demo nutzt das Mock-Modell bereits; --mock ist für das echte Postfach gedacht.")
     try:

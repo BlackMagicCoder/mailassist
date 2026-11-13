@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mailassist Demo</title>
+<style>
+/* Ein Lesestrang (max 1180px): Kopf, Szenario-Reiter, drei Spalten Eingang → ans Modell → Entwurf, Freigabe-Leiste.
+   Zink-Neutrale wie der Datenfluss-Bericht; Semantik grün/gelb/rot getrennt vom blauen Akzent. Keine externen Ressourcen. */
+:root {
+  --bg: #fafafa; --surface: #ffffff; --sunk: #f4f4f5; --fg: #18181b; --muted: #52525b; --faint: #71717a; --line: #e4e4e7;
+  --accent: #2563eb; --accent-soft: #dbeafe;
+  --ok: #15803d; --ok-soft: #dcfce7; --warn: #a16207; --warn-soft: #fef3c7; --bad: #b91c1c; --bad-soft: #fee2e2;
+  --f-text: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #18181b; --surface: #232327; --sunk: #1d1d20; --fg: #f4f4f5; --muted: #a1a1aa; --faint: #8b8b94; --line: #3f3f46;
+  --accent: #93c5fd; --accent-soft: #1e3a5f; --ok: #86efac; --ok-soft: #14361f; --warn: #fcd34d; --warn-soft: #3d2f0a;
+  --bad: #fca5a5; --bad-soft: #451a1a; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #18181b; --surface: #232327; --sunk: #1d1d20; --fg: #f4f4f5; --muted: #a1a1aa; --faint: #8b8b94; --line: #3f3f46;
+  --accent: #93c5fd; --accent-soft: #1e3a5f; --ok: #86efac; --ok-soft: #14361f; --warn: #fcd34d; --warn-soft: #3d2f0a;
+  --bad: #fca5a5; --bad-soft: #451a1a; color-scheme: dark; }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--f-text); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: 26px; line-height: 1.2; font-weight: 650; }
+h2 { font-size: 19px; font-weight: 650; }
+h3 { font-size: 14px; font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+code, .mono { font-family: var(--f-mono); font-size: 12.5px; }
+.eyebrow { font: 600 11px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.lead { color: var(--muted); }
+header { display: grid; gap: 8px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.logo { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
+.logo svg { width: 16px; height: 16px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); }
+.tabs button { font: 500 14px var(--f-text); color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 8px 12px 10px; cursor: pointer; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tabs button:hover { color: var(--fg); }
+button:focus-visible, [contenteditable]:focus-visible, .ln:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.intro { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+.intro > .what { display: grid; gap: 4px; min-width: 0; flex: 1 1 420px; }
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--sunk); }
+.seg button { font: 500 13px var(--f-text); color: var(--muted); background: none; border: 0; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
+
+.same { max-width: none; font-size: 13.5px; color: var(--muted); background: var(--accent-soft); border-radius: 8px; padding: 8px 12px; margin-top: -8px; }
+.proto { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.cols { display: grid; grid-template-columns: 1fr 0.85fr 1.15fr; }
+.col { padding: 18px; display: grid; gap: 12px; align-content: start; min-width: 0; border-right: 1px solid var(--line); }
+.col:last-child { border-right: 0; }
+.col-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.stage { font: 500 11px/1 var(--f-mono); color: var(--accent); white-space: nowrap; }
+.meta { font: 12px/1.5 var(--f-mono); color: var(--faint); overflow-wrap: anywhere; }
+.body { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; font-size: 14px; }
+mark { color: inherit; border-radius: 2px; padding: 0 1px; transition: box-shadow .2s; }
+mark.bad { background: var(--bad-soft); color: var(--bad); font-weight: 600; }
+mark.warn { background: var(--warn-soft); border-bottom: 2px solid var(--warn); }
+mark.todo { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+mark.flash { box-shadow: 0 0 0 3px var(--bad); }
+.note { font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 12px/1 var(--f-mono); padding: 5px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.chip.ok { color: var(--ok); border-color: currentColor; background: var(--ok-soft); }
+.chip.warn { color: var(--warn); border-color: currentColor; background: var(--warn-soft); }
+
+.pkt { display: grid; gap: 6px; }
+.blk { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; display: grid; gap: 3px; }
+.blk .tag { font: 500 12px var(--f-mono); color: var(--accent); }
+.blk small { color: var(--muted); font-size: 12.5px; }
+.blk.off { background: var(--sunk); border-style: dashed; }
+.blk.off .tag { color: var(--faint); }
+.blk.clean { border-color: var(--warn); background: var(--warn-soft); }
+.blk.clean .tag { color: var(--warn); }
+.border-line { display: flex; align-items: center; gap: 8px; font: 500 11px var(--f-mono); color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
+.border-line::before, .border-line::after { content: ""; flex: 1; border-top: 1px dashed var(--faint); }
+.kept { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); display: grid; gap: 2px; }
+
+.draft { border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); padding: 8px; display: grid; gap: 2px; font-size: 14px; }
+.ln { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; padding: 3px 6px; border-radius: 4px; }
+.ln .txt { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; outline: none; }
+.ln .src { font: 500 10.5px/1.4 var(--f-mono); padding: 2px 6px; border-radius: 4px; white-space: nowrap; margin-top: 2px; color: var(--faint); }
+.ln.ok { background: var(--ok-soft); } .ln.ok .src { color: var(--ok); }
+.ln.todo .src { color: var(--warn); }
+.ln.bad { background: var(--bad-soft); cursor: help; } .ln.bad .src { color: var(--bad); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.gate { border-top: 1px solid var(--line); padding: 14px 18px; display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; background: var(--sunk); }
+.gate .lock { display: grid; gap: 4px; font-weight: 600; font-size: 14px; }
+.gate .hash { font-size: 13px; color: var(--muted); }
+.gate .hash b { font: 500 12.5px var(--f-mono); color: var(--fg); }
+.gate .hash.stale b { text-decoration: line-through; color: var(--bad); }
+.status { font-weight: 600; font-size: 13px; padding: 6px 10px; border-radius: 6px; }
+.status.ok { color: var(--ok); background: var(--ok-soft); }
+.status.warn { color: var(--warn); background: var(--warn-soft); }
+.status.bad { color: var(--bad); background: var(--bad-soft); }
+.findings { padding: 0 18px 14px; background: var(--sunk); margin: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.findings li::before { content: "› "; color: var(--faint); }
+.findings li.crit { color: var(--bad); }
+footer { color: var(--faint); font-size: 12.5px; display: grid; gap: 4px; }
+
+@media (max-width: 920px) {
+  .cols { grid-template-columns: 1fr; }
+  .col { border-right: 0; border-bottom: 1px solid var(--line); }
+  .col:last-child { border-bottom: 0; }
+  .gate { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M2 4.5l6 4.5 6-4.5"/></svg></span>
+      <span class="eyebrow">mailassist · Demo</span>
+    </div>
+    <h1>Antwortentwürfe aus E-Mails, die nie selbst senden</h1>
+    <p class="lead">So verarbeitet mailassist eine eingehende Mail: was gelesen wird, was das Sprachmodell zu sehen bekommt, woher jede Angabe im Entwurf stammt und was die Freigabe festhält. Gespeichert wird ein Entwurf erst nach deiner Freigabe, versendet wird er nur von dir.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Szenarien" id="tabs"></nav>
+
+  <div class="intro">
+    <div class="what"><h2 id="s-title"></h2><p class="lead" id="s-text"></p></div>
+    <div class="seg" role="group" aria-label="Modell" id="models"></div>
+  </div>
+  <p class="same" id="same" hidden></p>
+
+  <div class="proto">
+    <div class="cols">
+      <section class="col" aria-labelledby="h-in">
+        <div class="col-head"><h3 id="h-in">Eingang</h3><span class="stage">1 · gelesen</span></div>
+        <div class="meta" id="m-meta"></div>
+        <div class="body" id="m-body"></div>
+        <div class="chips" id="m-facts" aria-label="Erkannte Angaben"></div>
+        <div id="m-notes" style="display:grid;gap:8px"></div>
+      </section>
+      <section class="col" aria-labelledby="h-mod">
+        <div class="col-head"><h3 id="h-mod">Ans Modell</h3><span class="stage">2 · bereinigt und begrenzt</span></div>
+        <div class="pkt" id="pkt"></div>
+        <div class="border-line">Grenze zum Modell</div>
+        <div style="display:grid;gap:4px"><span class="eyebrow">Bleibt auf dem Rechner</span><ul class="kept" id="kept"></ul></div>
+        <div class="note"><i class="dot" style="background:var(--accent)"></i><span>In dieser Demo antwortet ein lokales Regel-Modell ohne KI. Im Betrieb ginge genau dieses Paket an das Sprachmodell auf Amazon Bedrock (Frankfurt).</span></div>
+      </section>
+      <section class="col" aria-labelledby="h-out">
+        <div class="col-head"><h3 id="h-out">Entwurf mit Herkunft</h3><span class="stage">3 · geprüft</span></div>
+        <div class="draft" id="draft" aria-live="polite"></div>
+        <div class="legend">
+          <span><i class="sw" style="background:var(--ok)"></i>freigegebene Firmeninfo</span>
+          <span><i class="sw" style="background:var(--warn)"></i>offen, von dir zu ergänzen</span>
+          <span><i class="sw" style="background:var(--bad)"></i>keine vertrauenswürdige Quelle</span>
+        </div>
+      </section>
+    </div>
+    <div class="gate">
+      <div class="lock">Freigabe<span class="eyebrow" style="font-size:10px">Entwurf + Inhalts-Hash, einmalig</span></div>
+      <div class="hash" id="hash"></div>
+      <div class="status" id="status"></div>
+    </div>
+    <ul class="findings" id="findings"></ul>
+  </div>
+
+  <footer>
+    <span>Alle Mails sind synthetisch (fiktive „Beispiel Maschinenbau GmbH“, reservierte .example-Adressen). Die Inhalte stammen aus echten Läufen des Programms vom <span id="created"></span>; nichts wurde in einem Postfach gespeichert.</span>
+    <span>Tipp: Der Entwurf lässt sich direkt bearbeiten. Dann siehst du, dass eine erteilte Freigabe nicht mehr gilt.</span>
+  </footer>
+</div>
+
+<script>
+const DATA = /*SCHAUFENSTER_DATEN*/null;
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const TAG_IMITATION = /<\/?(?:selected_email|thread|company_facts|owner_instruction|change_request|previous_draft)\b[^>]*>/g;
+  const TODO = /\[\[TODO[^\]]*\]\]/g;
+  const LABEL = { nur_mail: "nur aus der Mail", ohne_quelle: "ohne Quelle", zahl: "nicht belegt" };
+  let scenario = DATA.szenarien[0], model = "vorsichtig", edited = false;
+
+  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+  // Text with highlighted spans; every piece is inserted as text, never as markup.
+  function highlighted(text, rules) {
+    const hits = [];
+    rules.forEach(([re, cls, title]) => { for (const m of text.matchAll(re)) hits.push([m.index, m.index + m[0].length, cls, title, m[0]]); });
+    hits.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    for (const [start, end, cls, title, value] of hits) {
+      if (start < pos) continue;
+      frag.append(text.slice(pos, start));
+      const m = el("mark", cls, value);
+      if (title) m.title = title;
+      m.dataset.value = value;
+      frag.append(m);
+      pos = end;
+    }
+    frag.append(text.slice(pos));
+    return frag;
+  }
+
+  function flagged() {
+    const values = new Set();
+    Object.values(scenario.laeufe).forEach((run) => run.zeilen.forEach((z) => z.befunde.forEach((b) => values.add(b.wert))));
+    return [...values].filter((v) => scenario.mail.text.includes(v));
+  }
+
+  function renderTabs() {
+    const tabs = $("tabs"); tabs.textContent = "";
+    DATA.szenarien.forEach((s) => {
+      const b = el("button", null, s.titel);
+      b.type = "button"; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(s === scenario));
+      b.addEventListener("click", () => { scenario = s; model = "vorsichtig"; go(); });
+      tabs.append(b);
+    });
+  }
+
+  function renderModels() {
+    const box = $("models"); box.textContent = "";
+    Object.entries(scenario.laeufe).forEach(([key, run]) => {
+      const b = el("button", null, run.label);
+      b.type = "button"; b.setAttribute("aria-pressed", String(key === model));
+      b.addEventListener("click", () => { model = key; go(); });
+      box.append(b);
+    });
+  }
+
+  function renderMail() {
+    const m = scenario.mail;
+    $("m-meta").textContent = `Von: ${m.absender}\nBetreff: ${m.betreff}\n${m.zeichen} Zeichen · ` +
+      (m.verlauf > 1 ? `${m.verlauf} Nachrichten im Verlauf` : "keine frühere Nachricht");
+    $("m-meta").style.whiteSpace = "pre-line";
+    const body = $("m-body"); body.textContent = "";
+    const rules = [[TAG_IMITATION, "warn", "Imitierte Markierung – wird vor dem Modell entschärft"]];
+    flagged().forEach((v) => rules.push([new RegExp(escapeRe(v), "g"), "bad", "Taucht im Entwurf ohne vertrauenswürdige Quelle auf"]));
+    body.append(highlighted(m.text, rules));
+
+    const facts = $("m-facts"); facts.textContent = "";
+    const seen = new Set();
+    scenario.analyse.fakten.filter((f) => !seen.has(f.wert) && seen.add(f.wert)).forEach((f) => facts.append(el("span", "chip " + (f.belegt ? "ok" : "warn"), f.wert + (f.belegt ? " ✓" : " ?"))));
+
+    const notes = $("m-notes"); notes.textContent = "";
+    const note = (color, strong, text) => {
+      const n = el("div", "note"); const d = el("i", "dot"); d.style.background = color;
+      const s = el("span"); s.append(el("b", null, strong), " " + text); n.append(d, s); notes.append(n);
+    };
+    if (scenario.analyse.verdacht) note("var(--warn)", "Manipulationsverdacht.", "Der Text geht trotzdem mit, aber nur als Inhalt der Mail, nie als Anweisung.");
+    scenario.bereinigt.hinweise.forEach((h) => note("var(--warn)", "Bereinigt:", h + "."));
+    if (scenario.analyse.fakten.length) note("var(--faint)", "✓", "= wörtlich in der Mail belegt.");
+  }
+
+  function renderPacket() {
+    const pkt = $("pkt"); pkt.textContent = "";
+    const blk = (cls, tag, text) => { const b = el("div", "blk " + cls); b.append(el("span", "tag", tag), el("small", null, text)); pkt.append(b); };
+    const c = scenario.bereinigt;
+    blk("", "<selected_email>", `nur diese eine Mail${scenario.mail.verlauf > 1 ? " samt Verlauf" : ""}`);
+    if (c.tag_imitationen) blk("clean", "Imitationen entschärft", `${c.tag_imitationen} gefälschte Markierung(en) wirken nur noch als Text`);
+    if (c.unicode_normalisiert) blk("clean", "Doppelgänger normalisiert", `${c.unicode_normalisiert} Text(e) mit Unicode-Tricks`);
+    if (c.hinweise.length) blk("clean", "Versteckter Text entfernt", c.hinweise.join(" · "));
+    const used = scenario.wissen.verwendet;
+    blk("", "<company_facts>", used.length ? used.join(" · ") : "keine passenden Einträge");
+    const skipped = scenario.wissen.uebersprungen.map((s) => {
+      const [file, reason] = s.split(": ");
+      return `${file} (${(reason || "").replace(/\s*\(.*\)$/, "")})`;
+    });
+    if (skipped.length) blk("off", "nicht verwendet", skipped.join(" · "));
+    blk("", "<owner_instruction>", "deine Anweisung zum Entwurf – in dieser Demo keine");
+    const kept = $("kept"); kept.textContent = "";
+    DATA.nie_gesendet.forEach((x) => kept.append(el("li", null, x)));
+  }
+
+  function renderDraft() {
+    const run = scenario.laeufe[model];
+    const draft = $("draft"); draft.textContent = "";
+    run.zeilen.forEach((z) => {
+      const todo = TODO.test(z.text); TODO.lastIndex = 0;
+      let cls = "", label = z.quellen.filter((q) => q !== "Mail").join(" · ") || "Text";
+      if (z.befunde.length || z.kritisch) {
+        cls = "bad"; label = [...new Set(z.befunde.map((b) => LABEL[b.art]))].join(" · ") || "Zusage ohne Freigabe";
+      } else if (z.quellen.includes("Firmeninfo") || z.quellen.includes("Anweisung")) { cls = "ok"; }
+      else if (todo) { cls = "todo"; label = "offen"; }
+      const ln = el("div", "ln " + cls);
+      const t = el("span", "txt");
+      const rules = [[TODO, "todo", "Platzhalter – vor dem Versand ergänzen"]];
+      z.befunde.forEach((b) => rules.push([new RegExp(escapeRe(b.wert), "g"), "bad"]));
+      t.append(highlighted(z.text, rules));
+      t.contentEditable = "true"; t.spellcheck = false;
+      t.addEventListener("input", () => { if (!edited) { edited = true; renderGate(); } });
+      ln.append(t, el("span", "src", label));
+      if (z.befunde.length) {
+        ln.tabIndex = 0; ln.title = "Woher stammt das? Die Stelle in der Mail leuchtet auf.";
+        const marks = () => [...document.querySelectorAll("#m-body mark.bad")].filter((m) => z.befunde.some((b) => b.wert === m.dataset.value));
+        const on = () => marks().forEach((m) => m.classList.add("flash"));
+        const off = () => marks().forEach((m) => m.classList.remove("flash"));
+        ln.addEventListener("mouseenter", on); ln.addEventListener("mouseleave", off);
+        ln.addEventListener("focus", on); ln.addEventListener("blur", off);
+      }
+      draft.append(ln);
+    });
+  }
+
+  function renderGate() {
+    const run = scenario.laeufe[model];
+    const hash = $("hash"), status = $("status");
+    hash.textContent = "";
+    if (edited) {
+      hash.className = "hash stale";
+      hash.append("Freigegeben wäre Hash ", el("b", null, run.hash), ". Der Text hat sich geändert – mailassist legt dafür einen neuen Vorschlag mit neuem Hash an, die alte Freigabe gilt nicht mehr.");
+      status.className = "status bad"; status.textContent = "Neue Freigabe nötig";
+    } else {
+      hash.className = "hash";
+      hash.append("Entwurf ", el("b", null, run.entwurf_id), " · Inhalts-Hash ", el("b", null, run.hash), ". Gespeichert wird nur genau dieser Text.");
+      if (run.kritisch.length) { status.className = "status bad"; status.textContent = "Speichern gesperrt bis zur ausdrücklichen Bestätigung"; }
+      else if (run.warnungen.length) { status.className = "status warn"; status.textContent = `${run.warnungen.length} Hinweis(e) vor der Freigabe`; }
+      else if (run.todos) { status.className = "status warn"; status.textContent = `${run.todos} offene Stelle(n) zu ergänzen`; }
+      else { status.className = "status ok"; status.textContent = "Keine ungestützten Angaben"; }
+    }
+    const list = $("findings"); list.textContent = "";
+    run.kritisch.forEach((k) => list.append(el("li", "crit", k)));
+    run.warnungen.forEach((w) => list.append(el("li", null, w)));
+    list.hidden = !list.children.length;
+  }
+
+  function go(fromHash) {
+    edited = false;
+    if (!fromHash) { try { history.replaceState(null, "", "#" + scenario.key + (model === "naiv" ? "-naiv" : "")); } catch (e) {} }
+    $("s-title").textContent = scenario.titel;
+    $("s-text").textContent = scenario.text;
+    $("same").textContent = scenario.gleich_hinweis;
+    $("same").hidden = !scenario.gleich_hinweis;
+    renderTabs(); renderModels(); renderMail(); renderPacket(); renderDraft(); renderGate();
+  }
+
+  function fromHash() {
+    const h = location.hash.slice(1);
+    const naive = h.endsWith("-naiv");
+    const found = DATA.szenarien.find((s) => s.key === (naive ? h.slice(0, -5) : h));
+    if (found) { scenario = found; model = naive ? "naiv" : "vorsichtig"; }
+    go(true);
+  }
+  $("created").textContent = DATA.erstellt;
+  window.addEventListener("hashchange", fromHash);
+  fromHash();
+})();
+</script>
+</body>
+</html>

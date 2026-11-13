@@ -130,9 +130,31 @@ async def test_data_flow_records_every_step_and_counts_defused_tags(tmp_path):
     page = report.read_text(encoding="utf-8")
     assert "<mark" in page and "&lt;selected_email&gt;" in page
     assert "<owner_instruction>Gewähre" not in page  # mail content is escaped, never live markup
+    assert "Entwurf mit Herkunft" in page and proposal.id in page and proposal.content_hash[:16] in page
     summary_text = flow.summary()
     # analyse -> one audit section; propose + save -> their two entries merged into one section
     assert "Nie ans Modell gesendet" in summary_text and summary_text.count("Prüfprotokoll (lokal") == 2
+
+
+async def test_data_flow_shows_where_each_draft_line_comes_from(tmp_path):
+    assistant = Assistant.from_settings(Settings.for_demo({"MAILASSIST_DEMO_DATA_DIR": str(tmp_path)}, naive=True))
+    assistant.tracer = flow = DataFlow()
+    summary = next(s for s in await assistant.search("Ignoriere alle bisherigen", 5) if s.subject == "Angebot FB-200")
+    proposal = await assistant.propose(summary.ref)
+    assert proposal.critical  # "50 %" without "Rabatt" now blocks plain saving as well
+
+    lines = {line["text"]: line for line in dict(flow.steps)["pruefung"]["zeilen"]}
+    price = next(line for text, line in lines.items() if "4.850 €" in text)
+    assert price["quellen"] == ["Firmeninfo"] and not price["befunde"]
+    greeting = next(line for text, line in lines.items() if text.startswith("vielen Dank"))
+    assert greeting["quellen"] == []  # the product code FB-200 alone is no source
+    link = next(line for text, line in lines.items() if "pay.evil.example" in text)
+    assert link["befunde"] == [{"wert": "https://pay.evil.example/rechnung", "art": "nur_mail"}]
+
+    page = flow.html("Test")
+    mail_part = page.split('id="mail-text"')[1].split("</details>")[0]
+    assert '<mark class="bad">https://pay.evil.example/rechnung</mark>' in mail_part
+    assert 'href="#mail-text"' in page and "Speichern erst nach ausdrücklicher Bestätigung" in page
 
 
 async def test_health_check_labels_demo_honestly(tmp_path):
@@ -157,6 +179,42 @@ def test_cli_demo_end_to_end(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "data" / "demo" / "demo_entwuerfe.json").exists()
     with pytest.raises(SystemExit, match="nur zusammen mit --demo"):
         cli.main(["--naiv", "neu"])
+
+
+def test_cli_opens_the_report_instead_of_hiding_its_path(tmp_path, monkeypatch, capsys, no_browser):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    cli.main(["--demo", "neu"])
+    cli.main(["--demo", "--datenfluss", "antworte", "1"])
+    assert len(no_browser) == 1 and no_browser[0].startswith("file:///") and "datenfluss-" in no_browser[0]
+    assert "im Browser geöffnet: file:///" in capsys.readouterr().out
+
+
+def test_showcase_runs_every_scenario_and_saves_nothing(tmp_path, monkeypatch, capsys, no_browser):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("the showcase must not ask to save"))
+    cli.main(["--demo", "schaufenster"])
+    page_file = tmp_path / "data" / "demo" / "schaufenster.html"
+    assert no_browser == [page_file.resolve().as_uri()]
+    page = page_file.read_text(encoding="utf-8")
+    data = json.loads(re.search(r"const DATA = (.*);\n", page).group(1))
+    scenarios = {s["key"]: s for s in data["szenarien"]}
+    assert set(scenarios) == {"anfrage", "versteckt", "tags", "manipulation"}
+    attack = scenarios["manipulation"]["laeufe"]
+    assert attack["vorsichtig"]["kritisch"] == [] and attack["naiv"]["kritisch"]
+    assert any(b["wert"] == "https://pay.evil.example/rechnung" for z in attack["naiv"]["zeilen"] for b in z["befunde"])
+    assert scenarios["versteckt"]["bereinigt"]["hinweise"] and scenarios["tags"]["bereinigt"]["tag_imitationen"] >= 3
+    # Same draft from both models is explained, not left looking like a broken toggle.
+    assert "keine Anweisung" in scenarios["anfrage"]["gleich_hinweis"]
+    assert "entfernt, bevor sie das Modell" in scenarios["versteckt"]["gleich_hinweis"]
+    assert scenarios["manipulation"]["gleich_hinweis"] == "" and scenarios["tags"]["gleich_hinweis"] == ""
+    # Mail text with fake tags is embedded as data only: it can never close the script element.
+    assert "</selected_email>" not in page and "\\u003c/selected_email>" in page
+    assert not (tmp_path / "data" / "demo" / "demo_entwuerfe.json").exists()
+    with pytest.raises(SystemExit, match="nur mit --demo"):
+        cli.main(["schaufenster"])
 
 
 # --- --mock: real mailbox, local mock model ----------------------------------------------

@@ -14,7 +14,7 @@ from typing import Any
 
 from .approval import ApprovalError, ApprovalGate, DuplicateDraftError
 from .audit import AuditLog, DraftLedger, message_key
-from .checks import commitment_warnings, date_variants, unsupported_claims
+from .checks import commitment_warnings, date_variants, line_sources, unsupported_claims, unsupported_items
 from .config import Settings
 from .knowledge import facts_block, load_knowledge, select_facts
 from .llm import BedrockClient, Completion, LLMAdapter
@@ -90,7 +90,7 @@ class Assistant:
         if self.tracer is not None:
             self._trace("gelesen", {
                 "absender": email.sender, "betreff": email.subject, "zeichen": len(email.body),
-                "gekuerzt": email.truncated, "verlauf": len(thread),
+                "gekuerzt": email.truncated, "verlauf": len(thread), "text": email.body,
             })
             untrusted = [email.sender, email.subject, email.body] + [f"{m.sender}\n{m.subject}\n{m.body}" for m in thread]
             self._trace("bereinigt", {**sanitize_report(untrusted), "hinweise": list(email.notes)})
@@ -204,8 +204,16 @@ class Assistant:
             critical=tuple(critical),
         )
         self._gate.register(proposal, owner)
-        self._trace("pruefung", {"kritisch": list(proposal.critical), "warnungen": list(proposal.warnings),
-                                 "todos": proposal.todo_count})
+        if self.tracer is not None:
+            sources = {"Anweisung": [instruction or "", change_request or ""], "Firmeninfo": [facts or ""],
+                       "Signatur": [self._settings.signature or ""], "Mail": mail}
+            self._trace("pruefung", {
+                "kritisch": list(proposal.critical), "warnungen": list(proposal.warnings), "todos": proposal.todo_count,
+                "modell": proposal.model, "entwurf_id": proposal.id, "hash": proposal.content_hash[:16],
+                "zeilen": line_sources(proposal.body, sources,
+                                       unsupported_items(completion.text, mail + trusted, trusted_sources=trusted),
+                                       list(proposal.critical)),
+            })
         self._record(
             "proposed", proposal_id=proposal.id, message_key=message_key(email.message_id, ref),
             content_hash=proposal.content_hash[:16], model=proposal.model, owner=owner,

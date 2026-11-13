@@ -12,9 +12,11 @@ For sales and customer-service teams in small and mid-sized companies who answer
 - **Guard against mistakes:** if a draft promises something nobody approved – free of charge, a discount, a refund, a guarantee, a delivery date – it can only be saved after a second, explicit confirmation. Mails that try to talk the model into such promises are flagged.
 - **Data stays in the EU:** the language model runs on Amazon Bedrock in Frankfurt; only the selected conversation is sent.
 
-Evidence: 210 automated tests (offline, synthetic data only), two live evaluations on 21 test mails including 7 manipulation attempts, and an acceptance test against a real GMX mailbox (see [Results and limits](#results-and-limits)).
+Evidence: 215 automated tests (offline, synthetic data only), two live evaluations on 21 test mails including 7 manipulation attempts, and an acceptance test against a real GMX mailbox (see [Results and limits](#results-and-limits)).
 
 The user interface (command line and Telegram bot) and the detailed setup guide are in German, because the target users are German-speaking businesses. Connecting mailassist to your own mailbox and company information is available as a project: [kbouschen.com](https://www.kbouschen.com)
+
+![Demo showcase: a mail with a manipulation attempt, what goes to the model, and the draft with the source of each line – the injected 50 % and the foreign link are marked red, saving is blocked](docs/img/schaufenster-manipulation.png)
 
 ## How it works
 
@@ -54,6 +56,7 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
+uv run mailassist --demo schaufenster                       # visual page in the browser: four scenarios, careful/naive model
 uv run mailassist --demo neu                                # synthetic inbox ("neu" = newest mails)
 uv run mailassist --demo --datenfluss analysiere 2          # triage + what happens to the data
 uv run mailassist --demo --datenfluss antworte 8 --hinweis "Angebot zusagen"
@@ -62,7 +65,16 @@ uv run mailassist --demo --naiv --datenfluss antworte 8     # a model that obeys
 
 - **Data:** 48 synthetic mails – 21 hand-written B2B mails of the fictional "Beispiel Maschinenbau GmbH" (including 7 manipulation attempts) and 27 mails from Gretel's *synthetic_pii_finance_multilingual* dataset (Apache 2.0). Provenance and changes: [`src/mailassist/demo_data/NOTICE.md`](src/mailassist/demo_data/NOTICE.md).
 - **Mock model:** rule-based and local – **not an AI**. It reads exactly the text a real model would receive. `--naiv` makes it obey instructions found in mails on purpose (links, discounts, "free of charge") to show the checks firing before approval.
-- **Data-flow view** (`--datenfluss`): step by step, what was read, what was removed or defused, which approved facts were used, what was sent to the model and what was logged – in the terminal and as an HTML report under `data/demo/datenfluss/`.
+- **Data-flow view** (`--datenfluss`): step by step, what was read, what was removed or defused, which approved facts were used, what was sent to the model and what was logged – in the terminal and as an HTML report that opens in the browser by itself (the terminal also prints a clickable link).
+- **Showcase** (`schaufenster`, demo only): runs four scenarios – normal request, hidden HTML text, forged control tags, manipulation attempt – and shows them as one page: incoming mail → what goes to the model → draft with the source of every line → approval, switchable between the careful and the naive mock model. A single self-contained file (`data/demo/schaufenster.html`) with synthetic data only, so it can be used in presentations or published. The images in `docs/img/` are rebuilt with `uv run python scripts/screenshots.py` (needs Edge or Chrome).
+
+| Normal request | Hidden text is removed |
+|---|---|
+| ![Scenario "normal request": the list price in the draft comes from the approved company facts and is marked green](docs/img/schaufenster-anfrage.png) | ![Scenario "hidden text": an invisible HTML element was removed, the open question stays as a TODO in the draft](docs/img/schaufenster-versteckt.png) |
+| **Dark mode** | **On a phone** |
+| ![The manipulation attempt in dark mode](docs/img/schaufenster-manipulation-dunkel.png) | ![The showcase at phone width](docs/img/schaufenster-handy.png) |
+
+The page itself is in German, like the rest of the user interface.
 
 ## Results and limits
 

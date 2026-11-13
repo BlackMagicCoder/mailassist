@@ -12,9 +12,11 @@ Für Vertrieb und Kundenservice in kleinen und mittleren Unternehmen, die tägli
 - **Schutz vor Fehlern:** Sagt ein Entwurf etwas zu, das niemand freigegeben hat – kostenlos, Rabatt, Erstattung, Garantie, Liefertermin –, lässt er sich nur nach einer zweiten, ausdrücklichen Bestätigung speichern. Mails, die das Modell zu solchen Zusagen überreden wollen, werden markiert.
 - **Daten in der EU:** Das Sprachmodell läuft über Amazon Bedrock in Frankfurt; nur die gewählte Unterhaltung wird übertragen.
 
-Nachweise: 210 automatische Tests (offline, nur synthetische Daten), zwei Live-Auswertungen mit 21 Test-Mails inkl. 7 Manipulationsversuchen und ein Abnahmetest mit einem echten GMX-Postfach (Details unter [Grenzen](#grenzen--bitte-kennen) und [Stand der Prüfung](#stand-der-prüfung)).
+Nachweise: 215 automatische Tests (offline, nur synthetische Daten), zwei Live-Auswertungen mit 21 Test-Mails inkl. 7 Manipulationsversuchen und ein Abnahmetest mit einem echten GMX-Postfach (Details unter [Grenzen](#grenzen--bitte-kennen) und [Stand der Prüfung](#stand-der-prüfung)).
 
 Anbindung an das eigene Postfach und die eigenen Firmeninfos als Auftrag: [kbouschen.com](https://www.kbouschen.com)
+
+![Schaufenster der Demo: eine Mail mit Manipulationsversuch, was ans Modell geht, und der Entwurf mit Herkunft jeder Zeile – die eingeschleusten 50 % und der fremde Link sind rot markiert, Speichern ist gesperrt](docs/img/schaufenster-manipulation.png)
 
 ## So funktioniert es
 
@@ -49,6 +51,7 @@ Ein späterer Microsoft-Graph-Connector ist geplant, aber nicht umgesetzt: [docs
 
 ```bash
 uv sync
+uv run mailassist --demo schaufenster                       # anschauliche Seite im Browser: vier Szenarien, vorsichtig/naiv
 uv run mailassist --demo neu                                # synthetisches Postfach
 uv run mailassist --demo --datenfluss analysiere 2          # Einordnung + was mit den Daten passiert
 uv run mailassist --demo --datenfluss antworte 8 --hinweis "Angebot zusagen"
@@ -59,7 +62,14 @@ uv run mailassist --demo bot                                # Telegram-Demo (bra
 
 - **Daten:** 48 synthetische Mails – 21 eigene B2B-Mails der fiktiven „Beispiel Maschinenbau GmbH“ (inkl. 7 Manipulationsversuchen) und 27 Mails aus dem Gretel-Datensatz *synthetic_pii_finance_multilingual* (Apache 2.0, künstliche Personendaten). Herkunft, Lizenz und Änderungen: [`src/mailassist/demo_data/NOTICE.md`](src/mailassist/demo_data/NOTICE.md).
 - **Mock-Modell:** regelbasiert, lokal, kostenlos – **keine KI**. Es liest aber genau den Text, den ein echtes Modell bekäme. `--naiv` lässt es absichtlich Anweisungen aus Mails befolgen (Links, Prozent-Rabatte, „kostenlos“), damit man sieht, wie die Prüfung vor der Freigabe anschlägt.
-- **Datenfluss** (`--datenfluss`): zeigt Schritt für Schritt, was gelesen, was entfernt/entschärft (versteckter HTML-Text, imitierte Steuer-Tags), welche freigegebenen Firmeninfos verwendet, was ans Modell geschickt und was protokolliert wurde – im Terminal und als HTML-Bericht unter `data/demo/datenfluss/` mit dem vollständigen Wortlaut.
+- **Datenfluss** (`--datenfluss`): zeigt Schritt für Schritt, was gelesen, was entfernt/entschärft (versteckter HTML-Text, imitierte Steuer-Tags), welche freigegebenen Firmeninfos verwendet, was ans Modell geschickt und was protokolliert wurde – im Terminal und als HTML-Bericht unter `data/demo/datenfluss/` mit dem vollständigen Wortlaut. Der Bericht zeigt den Entwurf Zeile für Zeile mit Herkunft (grün = aus deiner Anweisung oder den freigegebenen Firmeninfos, rot = keine vertrauenswürdige Quelle, mit Sprung zur Stelle in der Mail) und an welche Entwurfs-ID und welchen Inhalts-Hash die Freigabe gebunden ist. Der Bericht öffnet sich am Ende von selbst im Browser; im Terminal steht zusätzlich ein anklickbarer Link.
+- **Schaufenster** (`schaufenster`, nur mit `--demo`): spielt vier Szenarien durch – normale Anfrage, versteckter HTML-Text, gefälschte Steuerbefehle, Manipulationsversuch – und zeigt sie als eine Seite im Browser: Eingang → was ans Modell geht → Entwurf mit Herkunft → Freigabe, umschaltbar zwischen vorsichtigem und naivem Mock-Modell. Die Seite ist eine einzelne Datei ohne externe Abhängigkeiten (`data/demo/schaufenster.html`) und enthält nur synthetische Daten – geeignet für Präsentationen und zum Veröffentlichen. Direkt aufrufbare Ansichten: `#anfrage`, `#versteckt`, `#tags`, `#manipulation`, jeweils mit `-naiv`. Die Bilder in `docs/img/` baut `uv run python scripts/screenshots.py` neu (braucht einen installierten Edge oder Chrome).
+
+| Normale Anfrage | Versteckter Text wird entfernt |
+|---|---|
+| ![Szenario „Normale Anfrage“: der Listenpreis im Entwurf stammt aus den freigegebenen Firmeninfos und ist grün markiert](docs/img/schaufenster-anfrage.png) | ![Szenario „Versteckter Text“: ein unsichtbares HTML-Element wurde entfernt, die offene Frage bleibt als TODO im Entwurf](docs/img/schaufenster-versteckt.png) |
+| **Dunkles Farbschema** | **Auf dem Handy** |
+| ![Der Manipulationsversuch im dunklen Farbschema](docs/img/schaufenster-manipulation-dunkel.png) | ![Das Schaufenster in Handy-Breite](docs/img/schaufenster-handy.png) |
 - Alles bleibt lokal unter `data/demo/` (Entwürfe in `demo_entwuerfe.json`); die echte Konfiguration und echte Daten werden nie benutzt.
 
 ## Sicherheitsgrenzen
