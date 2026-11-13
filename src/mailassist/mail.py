@@ -36,6 +36,11 @@ ALLOWED_TOOLS = frozenset({"search_emails", "get_email", "get_thread", "save_rep
 _PASSTHROUGH_PREFIXES = ("PROTON_BRIDGE_", "BARYON_")
 _PASSTHROUGH_VARS = ("XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "APPDATA", "LOCALAPPDATA")
 
+# Baryon caps a thread message's preview body at this many characters.
+THREAD_BODY_MAX = 2000
+# Body of an HTML-only thread message whose filtered text could not be fetched.
+HTML_BODY_WITHHELD = "[HTML-Nachricht ohne Textteil – Inhalt nicht übernommen]"
+
 
 class MailError(AssistantError):
     pass
@@ -88,10 +93,13 @@ class _ThreadMsg(_Wire):
     date: str = ""
     message_id: str = ""
     body: str = ""
+    body_from_html: bool = False
     body_truncated: bool = False
 
 
 class _Thread(_Wire):
+    folder: str = ""
+    uidvalidity: int = 0
     messages: list[_ThreadMsg] = Field(default_factory=list)
 
 
@@ -267,18 +275,37 @@ class BaryonMail:
         if self._thread_folder:
             args["search_folder"] = self._thread_folder
         thread = _parse(_Thread, await self._call("get_thread", args), "get_thread")
-        return [
-            ThreadMessage(
+        result = []
+        for m in thread.messages:
+            body, truncated = m.body, m.body_truncated
+            if m.body_from_html:
+                body, truncated = await self._thread_html_body(thread, m)
+            result.append(ThreadMessage(
                 uid=m.uid,
                 subject=m.subject,
                 sender=_first(m.from_),
                 date=m.date,
-                body=m.body,
-                truncated=m.body_truncated,
+                body=body,
+                truncated=truncated,
                 message_id=m.message_id,
-            )
-            for m in thread.messages
-        ]
+            ))
+        return result
+
+    async def _thread_html_body(self, thread: _Thread, m: _ThreadMsg) -> tuple[str, bool]:
+        """Baryon's preview of an HTML-only message keeps CSS-hidden text, so the
+        message is fetched again and filtered like get_email. Fails closed."""
+        if not (thread.folder and thread.uidvalidity):
+            log.info("thread html body withheld uid=%s (no folder)", m.uid)
+            return HTML_BODY_WITHHELD, True
+        args = {"folder": thread.folder, "uid": m.uid, "uidvalidity": thread.uidvalidity}
+        try:
+            d = _parse(_EmailOut, await self._call("get_email", args), "get_email")
+        except MailError:
+            log.info("thread html body withheld uid=%s (fetch failed)", m.uid)
+            return HTML_BODY_WITHHELD, True
+        body = d.plain_body or html_to_text(d.html_body)
+        cut = len(body) > THREAD_BODY_MAX
+        return body[:THREAD_BODY_MAX], cut or d.text_truncated or d.html_truncated or m.body_truncated
 
     async def save_reply_draft(self, ref: MessageRef, body: str) -> SavedDraft:
         args = {**ref.as_args(), "text_body": body}
