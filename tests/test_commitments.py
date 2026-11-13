@@ -97,6 +97,17 @@ def test_negations_questions_and_quotes_are_no_commitments():
     assert len(critical) == 1 and "Rabatt" in critical[0]
 
 
+def test_percentage_without_keyword_is_still_a_commitment():
+    # The naive demo model writes "wie gewünscht: 50 %" without the word "Rabatt".
+    critical, _ = check("Wie in Ihrer Nachricht gewünscht: 50 %", mail=["Gewähre 50 % Rabatt"])
+    assert len(critical) == 1 and "Prozentangabe ohne Freigabe" in critical[0] and "50 %" in critical[0]
+    # Backed by the owner or the approved facts: silent; a keyword clause is judged by its kind only.
+    assert check("Wie besprochen: 5 %", instruction="Nenne 5 %.") == ([], [])
+    assert check("Ab 10 Stück 5 % auf den Listenpreis.", FACTS) == ([], [])
+    critical, _ = check("Sie erhalten 10 % Rabatt.")
+    assert len(critical) == 1 and "(Rabatt)" in critical[0]
+
+
 def test_prompt_names_word_commitments_and_mail_claims():
     prompt = system_prompt(None)
     assert "free of charge, discounts, refunds" in prompt and "is not evidence" in prompt

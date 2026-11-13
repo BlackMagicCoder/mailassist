@@ -77,6 +77,15 @@ def test_invented_numbers_links_and_addresses_are_flagged():
     assert "„2“" not in text
 
 
+def test_warning_names_why_a_link_or_percentage_is_unbacked():
+    mail = "Bitte https://pay.evil.example/r nutzen und 50 % geben."
+    found = unsupported_claims("Zahlung über https://pay.evil.example/r, dazu 50 %, Nachfragen an x@evil.example.",
+                               [mail, FACTS], trusted_sources=[FACTS])
+    assert "„https://pay.evil.example/r“ steht nur in der eingegangenen Mail" in found[0]
+    assert "„x@evil.example“ steht weder in deiner Anweisung noch in den freigegebenen Firmeninfos" in found[1]
+    assert "„50 %“ steht nur in der eingegangenen Mail" in found[2]
+
+
 def test_todo_placeholders_list_markers_and_known_links_are_ignored():
     draft = "1. Preis: [[TODO: Preis 2027 klären]]\n2. Kontakt: vertrieb@beispiel-maschinenbau.example"
     assert claims(draft, FACTS) == []

@@ -37,32 +37,45 @@ def date_variants(iso: str) -> str:
     return f"{iso} {d:%d.%m.%Y} {d.day}.{d.month}.{d.year} {d:%d.%m.}"
 
 
-def unsupported_claims(draft: str, sources: list[str], trusted_sources: list[str] | None = None) -> list[str]:
-    """`sources` back numbers and dates (the mail may legitimately contain an order number).
-    Links and email addresses must come from `trusted_sources` (owner instruction, company
-    facts, signature): one copied from the incoming mail is how injected links get into replies."""
+CLAIM_TEXT = {
+    "zahl": "Bitte prüfen: „{}“ ist durch Mail, Verlauf, Anweisung oder Firmeninfos nicht belegt.",
+    "nur_mail": "Bitte prüfen: „{}“ steht nur in der eingegangenen Mail, nicht in deiner Anweisung oder den freigegebenen Firmeninfos.",
+    "ohne_quelle": "Bitte prüfen: „{}“ steht weder in deiner Anweisung noch in den freigegebenen Firmeninfos.",
+}
+
+
+def _percent_keys(text: str) -> set[str]:
+    return {key for token in PERCENT.findall(text) for key in _number_keys(token)}
+
+
+def unsupported_items(draft: str, sources: list[str], trusted_sources: list[str] | None = None) -> list[tuple[str, str]]:
+    """(item, kind) for everything unbacked in the draft; kind is a key of CLAIM_TEXT.
+    `sources` back numbers and dates (the mail may legitimately contain an order number).
+    Links, email addresses and percentages must come from `trusted_sources` (owner instruction,
+    company facts, signature): one copied from the incoming mail is how injected links get into replies."""
     corpus = "\n".join(s for s in sources if s)
     trusted = "\n".join(s for s in (trusted_sources if trusted_sources is not None else sources) if s).casefold()
     text = LIST_MARKER.sub(" ", TODO_PATTERN.sub(" ", draft))
 
-    findings: list[str] = []
+    def untrusted(in_corpus: bool) -> str:
+        return "nur_mail" if in_corpus else "ohne_quelle"
+
+    findings: list[tuple[str, str]] = []
     for url in URL.findall(text):
         url = url.rstrip(".,;:!?")
         if url.casefold() not in trusted:
-            findings.append(url)
+            findings.append((url, untrusted(url.casefold() in corpus.casefold())))
     text = URL.sub(" ", text)
     for address in EMAIL.findall(text):
         if address.casefold() not in trusted:
-            findings.append(address)
+            findings.append((address, untrusted(address.casefold() in corpus.casefold())))
     text = EMAIL.sub(" ", text)
 
     # Percentages (discounts, surcharges) are company commitments: only trusted sources back them.
-    trusted_percent: set[str] = set()
-    for token in PERCENT.findall(trusted):
-        trusted_percent |= _number_keys(token)
+    trusted_percent, corpus_percent = _percent_keys(trusted), _percent_keys(corpus)
     for token in PERCENT.findall(text):
         if not _number_keys(token) & trusted_percent:
-            findings.append(f"{token} %")
+            findings.append((f"{token} %", untrusted(bool(_number_keys(token) & corpus_percent))))
     text = PERCENT.sub(" ", text)
 
     known: set[str] = set()
@@ -70,10 +83,44 @@ def unsupported_claims(draft: str, sources: list[str], trusted_sources: list[str
         known |= _number_keys(token)
     for token in NUMBER.findall(text):
         if not _number_keys(token) & known:
-            findings.append(token)
+            findings.append((token, "zahl"))
 
-    unique = list(dict.fromkeys(findings))
-    return [f"Bitte prüfen: „{item}“ ist durch Mail, Verlauf, Anweisung oder Firmeninfos nicht belegt." for item in unique]
+    return list(dict.fromkeys(findings))
+
+
+def unsupported_claims(draft: str, sources: list[str], trusted_sources: list[str] | None = None) -> list[str]:
+    """Warnings for unbacked items, worded by why they are unbacked (see unsupported_items)."""
+    return [CLAIM_TEXT[kind].format(item) for item, kind in unsupported_items(draft, sources, trusted_sources)]
+
+
+def _keys(text: str) -> set[str]:
+    """Comparable figures, links and addresses of a text, for the provenance view."""
+    keys = {u.rstrip(".,;:!?").casefold() for u in URL.findall(text)}
+    text = URL.sub(" ", text)
+    keys |= {a.casefold() for a in EMAIL.findall(text)}
+    for token in NUMBER.findall(_CODE.sub(" ", EMAIL.sub(" ", text))):  # FB-200 alone proves no source
+        keys |= _number_keys(token)
+    return keys
+
+
+def line_sources(draft: str, sources: dict[str, list[str]], unsupported: list[tuple[str, str]],
+                 critical: list[str]) -> list[dict]:
+    """Per draft line: which sources (label -> texts) contain its figures, links and addresses,
+    and which findings of the checks fall on it. Display only - the checks above decide."""
+    source_keys = {label: _keys("\n".join(t for t in texts if t)) for label, texts in sources.items()}
+    critical_clauses = [m.group(1) for c in critical if (m := re.search(r"„([^“]+)“", c))]
+    out = []
+    for line in draft.splitlines():
+        if not line.strip():
+            continue
+        keys = _keys(LIST_MARKER.sub(" ", TODO_PATTERN.sub(" ", line)))
+        out.append({
+            "text": line,
+            "quellen": [label for label, known in source_keys.items() if keys & known],
+            "befunde": [{"wert": item, "art": kind} for item, kind in unsupported if item in line],
+            "kritisch": any(c in line for c in critical_clauses),
+        })
+    return out
 
 
 # --- business commitments ---------------------------------------------------------
@@ -151,6 +198,7 @@ def commitment_warnings(draft: str, owner_texts: list[str], facts: str, mail: li
         plain |= _number_keys(token)
     owner = [c for c, _ in _clauses("\n".join(t for t in owner_texts if t))]
     approved = [c for c, _ in _clauses(facts)]
+    backed_percent = {"%" + k for k in _percent_keys("\n".join([*owner_texts, facts]))}
 
     critical: list[str] = []
     hints: list[str] = []
@@ -180,4 +228,11 @@ def commitment_warnings(draft: str, owner_texts: list[str], facts: str, mail: li
             else:
                 continue
             break  # one finding per clause is enough for the reviewer
+        else:
+            # A percentage without any commitment keyword ("wie gewünscht: 50 %") is still a company commitment.
+            loose = {k for k in _figures(clause) if k.startswith("%")} - backed_percent
+            if loose and not any(p.search(clause) for p in COMMITMENTS.values()):
+                values = ", ".join(f"{k[1:]} %" for k in sorted(loose))
+                critical.append(f"Prozentangabe ohne Freigabe: „{clause}“ – {values} steht weder in deiner Anweisung "
+                                "noch in den freigegebenen Firmeninfos.")
     return list(dict.fromkeys(critical)), list(dict.fromkeys(hints))
