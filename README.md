@@ -199,9 +199,21 @@ journalctl --user -u mailassist-bot -f      # Log ansehen
 
 ## Lokale Installation (Windows, zum Ausprobieren)
 
-1. Proton Mail Bridge für Windows installieren, anmelden, unter *Einstellungen → Erweitert → TLS-Zertifikate exportieren* `cert.pem` speichern.
-2. Baryon: `baryon-mcp_0.6.3_windows_amd64.zip` und `baryon-mcp_0.6.3_SHA256SUMS` von der Release-Seite laden, `Get-FileHash baryon-mcp_*.zip -Algorithm SHA256` mit der Datei vergleichen, `baryon-mcp.exe` in einen Ordner im `PATH` entpacken, dann `baryon-mcp setup --skip-client-config`. Das Passwort landet in der Windows-Anmeldeinformationsverwaltung.
-3. Im Projektordner: `uv sync`, `.env.example` nach `.env` kopieren, `BEDROCK_API_KEY` eintragen, `uv run mailassist check`.
+> Baryon v0.6.3 für Windows ist gegen mailassist geprüft (Version, Werkzeuge, Datenformat). Der Ablauf mit einem echten Proton-Konto wurde **noch nicht durchgespielt**.
+
+1. **Proton Mail Bridge** installieren: Download von <https://proton.me/mail/bridge> oder `winget install --id Proton.ProtonMailBridge --exact`. Anmelden (braucht einen bezahlten Tarif) und unter *Einstellungen → Erweitert → TLS-Zertifikate exportieren* `cert.pem` speichern.
+2. **Baryon:** `baryon-mcp_0.6.3_windows_amd64.zip` und `baryon-mcp_0.6.3_SHA256SUMS` von der Release-Seite laden, `Get-FileHash baryon-mcp_*.zip -Algorithm SHA256` mit der Datei vergleichen, `baryon-mcp.exe` in einen Ordner im `PATH` entpacken, dann `baryon-mcp setup --skip-client-config`. Benutzername und Bridge-Passwort zeigt die Bridge-App in den Postfach-Einstellungen – das ist nicht dein Proton-Passwort. Das Passwort landet in der Windows-Anmeldeinformationsverwaltung.
+3. **mailassist:** Im Projektordner `uv sync`, `.env.example` nach `.env` kopieren. Für Proton muss `MAILASSIST_CONNECTOR=baryon` gesetzt sein oder die Zeile fehlen; in `MAILASSIST_OWN_ADDRESSES` gehört deine Proton-Adresse.
+4. **Erst ohne Sprachmodell testen** (kein Schlüssel nötig, Mailinhalte gehen an kein Modell). Schick dir eine unkritische Testmail, dann:
+
+   ```
+   uv run mailassist --mock check
+   uv run mailassist --mock neu
+   uv run mailassist --mock antworte 1
+   ```
+
+   Danach in Proton nachsehen: Der Entwurf hängt im richtigen Verlauf, „Gesendet" ist leer, die Testmail ist weiterhin ungelesen.
+5. **Mit Sprachmodell:** `BEDROCK_API_KEY` eintragen, `uv run mailassist check --llm`, dann dieselben Befehle ohne `--mock`.
 
 ## Wissensbasis (freigegebene Unternehmensinformationen)
 
@@ -263,6 +275,7 @@ Erster Schritt immer: `uv run mailassist check --llm --telegram`.
 | Meldung / Symptom | Ursache und Lösung |
 |---|---|
 | `'baryon-mcp' nicht gefunden` | Baryon nicht installiert oder nicht im `PATH`. Alternativ vollen Pfad in `BARYON_COMMAND` setzen. |
+| `Start fehlgeschlagen: MCPError` | Baryon ist noch nicht eingerichtet. Der Grund steht in der Zeile darüber (z. B. `PROTON_BRIDGE_USERNAME is required`): `baryon-mcp setup --skip-client-config` ausführen. |
 | `baryon-mcp meldet Version …` | Installierte Baryon-Version weicht von der geprüften ab. Richtige Version installieren oder – nach eigener Prüfung – `MAILASSIST_BARYON_VERSION` anpassen. |
 | `Postfach-Zugriff fehlgeschlagen` / Timeout | Bridge läuft nicht: `systemctl --user status protonmail-bridge` bzw. Bridge-App starten. In der Kommandozeile stehen unter „Details“ die Originalmeldungen. |
 | Fehler zu Zertifikat / TLS | Bridge-Zertifikat hat sich geändert: `baryon-mcp setup` erneut ausführen. |
